@@ -2,13 +2,24 @@
   "nodes": [
     {
       "parameters": {
-        "formTitle": "ALIA — Send Email (Outlook)",
+        "formTitle": "ALIA \u2014 Send Email (Outlook)",
         "formDescription": "Request an outbound email. Requires approval before sending.",
         "formFields": {
           "values": [
-            { "fieldLabel": "To", "placeholder": "recipient@example.com", "requiredField": true },
-            { "fieldLabel": "Subject", "requiredField": true },
-            { "fieldLabel": "Body", "fieldType": "textarea", "requiredField": true }
+            {
+              "fieldLabel": "To",
+              "placeholder": "recipient@example.com",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Subject",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Body",
+              "fieldType": "textarea",
+              "requiredField": true
+            }
           ]
         },
         "options": {}
@@ -17,20 +28,58 @@
       "name": "Request Email (Outlook)",
       "type": "n8n-nodes-base.formTrigger",
       "typeVersion": 2.2,
-      "position": [-220, 300],
+      "position": [
+        -220,
+        300
+      ],
       "webhookId": "alia-outlook-request"
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "a1", "name": "request_id", "value": "={{ $execution.id }}", "type": "string" },
-            { "id": "a2", "name": "channel", "value": "outlook", "type": "string" },
-            { "id": "a3", "name": "tier", "value": "T2", "type": "string" },
-            { "id": "a4", "name": "to", "value": "={{ $json.To }}", "type": "string" },
-            { "id": "a5", "name": "subject", "value": "={{ $json.Subject }}", "type": "string" },
-            { "id": "a6", "name": "body", "value": "={{ $json.Body }}", "type": "string" },
-            { "id": "a7", "name": "requested_at", "value": "={{ $now.toISO() }}", "type": "string" }
+            {
+              "id": "a1",
+              "name": "request_id",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "channel",
+              "value": "outlook",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "to",
+              "value": "={{ $json.To }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "subject",
+              "value": "={{ $json.Subject }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "body",
+              "value": "={{ $json.Body }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "requested_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -39,13 +88,26 @@
       "name": "Build Request",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [0, 300]
+      "position": [
+        0,
+        300
+      ]
     },
     {
       "parameters": {
         "operation": "append",
-        "documentId": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
-        "sheetName": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
         "columns": {
           "mappingMode": "autoMapInputData",
           "value": {},
@@ -58,21 +120,28 @@
       "name": "Log Request (Outlook)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [220, 300]
+      "position": [
+        220,
+        300
+      ]
     },
     {
       "parameters": {
         "chatId": "YOUR_TELEGRAM_CHAT_ID",
-        "message": "=*ALIA — Approval required (T2)*\n\n*Channel:* Outlook\n*Request:* {{ $json.request_id }}\n\n*To:* {{ $json.to }}\n*Subject:* {{ $json.subject }}\n\n---\n{{ $json.body }}\n---\n\nApprove to send this email.",
+        "message": "=*ALIA \u2014 Approval required (T2)*\n\n*Channel:* Outlook\n*Request:* {{ $json.request_id }}\n\n*To:* {{ $json.to }}\n*Subject:* {{ $json.subject }}\n\n---\n{{ $json.body }}\n---\n\nApprove to send this email.",
         "operation": "sendAndWait",
         "responseType": "approval",
         "approvalOptions": {
           "values": {
             "approvalType": "double",
-            "approveLabel": "✅ Approve & Send",
-            "disapproveLabel": "❌ Reject"
+            "approveLabel": "\u2705 Approve & Send",
+            "disapproveLabel": "\u274c Reject"
           }
         },
+        "chatApproval": true,
+        "approverIds": "YOUR_TELEGRAM_USER_ID",
+        "unauthorizedReplyText": "You are not authorised to approve ALIA actions.",
+        "postDecisionBehavior": "showOutcome",
         "options": {
           "limitWaitTime": true,
           "resumeAmount": 30,
@@ -84,7 +153,10 @@
       "name": "Request Approval (Telegram)",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [440, 300],
+      "position": [
+        440,
+        300
+      ],
       "webhookId": "alia-outlook-approval"
     },
     {
@@ -101,7 +173,11 @@
               "id": "c1",
               "leftValue": "={{ $json.data.approved }}",
               "rightValue": "",
-              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             }
           ],
           "combinator": "and"
@@ -112,7 +188,10 @@
       "name": "Approved?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [660, 300]
+      "position": [
+        660,
+        300
+      ]
     },
     {
       "parameters": {
@@ -121,26 +200,71 @@
         "subject": "={{ $('Build Request').item.json.subject }}",
         "bodyContent": "={{ $('Build Request').item.json.body }}",
         "toRecipients": "={{ $('Build Request').item.json.to }}",
-        "additionalFields": { "bodyContentType": "text" }
+        "additionalFields": {
+          "bodyContentType": "text"
+        }
       },
       "id": "alia-outlook-send",
       "name": "Send Email (Outlook)",
       "type": "n8n-nodes-base.microsoftOutlook",
       "typeVersion": 2,
-      "position": [900, 180]
+      "position": [
+        900,
+        180
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "s1", "name": "request_id", "value": "={{ $('Build Request').item.json.request_id }}", "type": "string" },
-            { "id": "s2", "name": "channel", "value": "outlook", "type": "string" },
-            { "id": "s3", "name": "tier", "value": "T2", "type": "string" },
-            { "id": "s4", "name": "to", "value": "={{ $('Build Request').item.json.to }}", "type": "string" },
-            { "id": "s5", "name": "subject", "value": "={{ $('Build Request').item.json.subject }}", "type": "string" },
-            { "id": "s6", "name": "decision", "value": "approved", "type": "string" },
-            { "id": "s7", "name": "outcome", "value": "sent", "type": "string" },
-            { "id": "s8", "name": "decided_at", "value": "={{ $now.toISO() }}", "type": "string" }
+            {
+              "id": "s1",
+              "name": "request_id",
+              "value": "={{ $('Build Request').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "s2",
+              "name": "channel",
+              "value": "outlook",
+              "type": "string"
+            },
+            {
+              "id": "s3",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "s4",
+              "name": "to",
+              "value": "={{ $('Build Request').item.json.to }}",
+              "type": "string"
+            },
+            {
+              "id": "s5",
+              "name": "subject",
+              "value": "={{ $('Build Request').item.json.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "s6",
+              "name": "decision",
+              "value": "approved",
+              "type": "string"
+            },
+            {
+              "id": "s7",
+              "name": "outcome",
+              "value": "sent",
+              "type": "string"
+            },
+            {
+              "id": "s8",
+              "name": "decided_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -149,13 +273,26 @@
       "name": "Outcome: Sent",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1120, 180]
+      "position": [
+        1120,
+        180
+      ]
     },
     {
       "parameters": {
         "operation": "append",
-        "documentId": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
-        "sheetName": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
         "columns": {
           "mappingMode": "autoMapInputData",
           "value": {},
@@ -168,20 +305,63 @@
       "name": "Log Sent (Outlook)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1340, 180]
+      "position": [
+        1340,
+        180
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "r1", "name": "request_id", "value": "={{ $('Build Request').item.json.request_id }}", "type": "string" },
-            { "id": "r2", "name": "channel", "value": "outlook", "type": "string" },
-            { "id": "r3", "name": "tier", "value": "T2", "type": "string" },
-            { "id": "r4", "name": "to", "value": "={{ $('Build Request').item.json.to }}", "type": "string" },
-            { "id": "r5", "name": "subject", "value": "={{ $('Build Request').item.json.subject }}", "type": "string" },
-            { "id": "r6", "name": "decision", "value": "rejected", "type": "string" },
-            { "id": "r7", "name": "outcome", "value": "not_sent", "type": "string" },
-            { "id": "r8", "name": "decided_at", "value": "={{ $now.toISO() }}", "type": "string" }
+            {
+              "id": "r1",
+              "name": "request_id",
+              "value": "={{ $('Build Request').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "r2",
+              "name": "channel",
+              "value": "outlook",
+              "type": "string"
+            },
+            {
+              "id": "r3",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "r4",
+              "name": "to",
+              "value": "={{ $('Build Request').item.json.to }}",
+              "type": "string"
+            },
+            {
+              "id": "r5",
+              "name": "subject",
+              "value": "={{ $('Build Request').item.json.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "r6",
+              "name": "decision",
+              "value": "rejected",
+              "type": "string"
+            },
+            {
+              "id": "r7",
+              "name": "outcome",
+              "value": "not_sent",
+              "type": "string"
+            },
+            {
+              "id": "r8",
+              "name": "decided_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -190,13 +370,26 @@
       "name": "Outcome: Rejected",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [900, 420]
+      "position": [
+        900,
+        420
+      ]
     },
     {
       "parameters": {
         "operation": "append",
-        "documentId": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
-        "sheetName": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
         "columns": {
           "mappingMode": "autoMapInputData",
           "value": {},
@@ -209,23 +402,108 @@
       "name": "Log Rejected (Outlook)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1120, 420]
+      "position": [
+        1120,
+        420
+      ]
     }
   ],
   "connections": {
-    "Request Email (Outlook)": { "main": [[{ "node": "Build Request", "type": "main", "index": 0 }]] },
-    "Build Request": { "main": [[{ "node": "Log Request (Outlook)", "type": "main", "index": 0 }]] },
-    "Log Request (Outlook)": { "main": [[{ "node": "Request Approval (Telegram)", "type": "main", "index": 0 }]] },
-    "Request Approval (Telegram)": { "main": [[{ "node": "Approved?", "type": "main", "index": 0 }]] },
-    "Approved?": {
+    "Request Email (Outlook)": {
       "main": [
-        [{ "node": "Send Email (Outlook)", "type": "main", "index": 0 }],
-        [{ "node": "Outcome: Rejected", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Build Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Send Email (Outlook)": { "main": [[{ "node": "Outcome: Sent", "type": "main", "index": 0 }]] },
-    "Outcome: Sent": { "main": [[{ "node": "Log Sent (Outlook)", "type": "main", "index": 0 }]] },
-    "Outcome: Rejected": { "main": [[{ "node": "Log Rejected (Outlook)", "type": "main", "index": 0 }]] }
+    "Build Request": {
+      "main": [
+        [
+          {
+            "node": "Log Request (Outlook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Request (Outlook)": {
+      "main": [
+        [
+          {
+            "node": "Request Approval (Telegram)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request Approval (Telegram)": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Send Email (Outlook)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome: Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email (Outlook)": {
+      "main": [
+        [
+          {
+            "node": "Outcome: Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Sent": {
+      "main": [
+        [
+          {
+            "node": "Log Sent (Outlook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Rejected": {
+      "main": [
+        [
+          {
+            "node": "Log Rejected (Outlook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "pinData": {}
 }

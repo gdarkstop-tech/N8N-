@@ -138,6 +138,10 @@
             "disapproveLabel": "\u274c Reject"
           }
         },
+        "chatApproval": true,
+        "approverIds": "YOUR_TELEGRAM_USER_ID",
+        "unauthorizedReplyText": "You are not authorised to approve ALIA actions.",
+        "postDecisionBehavior": "showOutcome",
         "options": {
           "limitWaitTime": true,
           "resumeAmount": 30,

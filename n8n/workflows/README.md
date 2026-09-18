@@ -29,23 +29,52 @@ Two consequences:
 
 1. **Four of five flows work today.** Only the two Outlook *action* nodes need the
    Microsoft credential.
-2. **It is more secure than an emailed approve-link.** An emailed link is a bearer
-   capability — anyone holding it approves, and you cannot prove it was you. Worse,
-   enterprise mail scanners (Defender Safe Links, Proofpoint, Mimecast) prefetch links
-   in inbound mail, which can auto-click a `GET` approve button with no human involved.
-   A Telegram inline button is identity-bound and not prefetchable.
+2. **It replaces the emailed approve-link**, which is a genuine weakness: that link is a
+   bearer capability — anyone holding it approves, and you cannot prove it was you.
+   Worse, enterprise mail scanners (Defender Safe Links, Proofpoint, Mimecast) prefetch
+   links in inbound mail, which can auto-click a `GET` approve button with no human
+   involved.
+
+### One-tap in-chat approval is not the default — these flows turn it on
+
+n8n's Telegram `sendAndWait` has **two** approval modes, and the difference matters:
+
+| | Default (`chatApproval: false`) | What these flows set (`chatApproval: true`) |
+|---|---|---|
+| Button type | `url` — opens a browser | `callback_data`, HMAC-signed |
+| Where approval happens | a web page | inside the Telegram chat, one tap |
+| Who can approve | anyone with the link | only the Telegram user IDs in `approverIds` |
+| Bearer-link risk | **yes, still present** | no — nothing leaves Telegram |
+
+In the default mode the Telegram button is *still a link*, so it carries the same
+bearer-URL weakness as the emailed version — it is just delivered over Telegram instead.
+Only `chatApproval: true` plus `approverIds` makes approval genuinely identity-bound.
+
+**Requirements for one-tap mode:** the n8n instance must be reachable over **public
+HTTPS** (not `localhost`, not plain HTTP), and the bot's webhook must be free or owned by
+a Telegram Trigger on the same instance. If those aren't met, n8n **silently falls back
+to link buttons** and logs a warning — so check your n8n logs the first time and confirm
+you are not quietly running in the weaker mode.
+
+`appendAttribution: false` is set on every approval node, so no "This message was sent
+automatically with n8n" line is appended.
 
 ## Setup, once
 
 | Where | What |
 |---|---|
-| Every `Request Approval (Telegram)` | replace `YOUR_TELEGRAM_CHAT_ID`, attach Telegram credential |
+| Every `Request Approval (Telegram)` | replace `YOUR_TELEGRAM_CHAT_ID` **and** `YOUR_TELEGRAM_USER_ID`, attach Telegram credential |
 | Every `Log *` node | pick document + sheet from the dropdowns |
 | `Anthropic Chat Model` (triage flow) | attach Anthropic credential |
 | Outlook nodes | Microsoft credential — see `docs/runbooks/outlook-oauth-troubleshooting.md` |
 
-Chat ID: message the bot, open `https://api.telegram.org/bot<TOKEN>/getUpdates`,
-read `result[0].message.chat.id`.
+Chat ID: message the bot, open `https://api.telegram.org/bot<TOKEN>/getUpdates`, read
+`result[0].message.chat.id`. Your **user ID** (for `approverIds`) is
+`result[0].message.from.id` in the same response — in a private 1:1 chat with the bot
+these two numbers are the same, but they differ in groups, so set both from the response
+rather than assuming.
+
+Leaving `approverIds` empty means **anyone who can see the message can approve**. Set it.
 
 Sheets use `autoMapInputData`, so the **header row must match the field names** the
 Set nodes emit. Union of all of them:

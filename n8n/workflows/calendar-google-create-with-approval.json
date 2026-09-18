@@ -2,15 +2,32 @@
   "nodes": [
     {
       "parameters": {
-        "formTitle": "ALIA — Create Calendar Event (Google)",
+        "formTitle": "ALIA \u2014 Create Calendar Event (Google)",
         "formDescription": "Checks for conflicts, then requires approval before the event is created.",
         "formFields": {
           "values": [
-            { "fieldLabel": "Title", "requiredField": true },
-            { "fieldLabel": "Start", "placeholder": "2026-09-22T14:00:00+03:00", "requiredField": true },
-            { "fieldLabel": "End", "placeholder": "2026-09-22T15:00:00+03:00", "requiredField": true },
-            { "fieldLabel": "Attendees", "placeholder": "a@x.com, b@y.com" },
-            { "fieldLabel": "Description", "fieldType": "textarea" }
+            {
+              "fieldLabel": "Title",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Start",
+              "placeholder": "2026-09-22T14:00:00+03:00",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "End",
+              "placeholder": "2026-09-22T15:00:00+03:00",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Attendees",
+              "placeholder": "a@x.com, b@y.com"
+            },
+            {
+              "fieldLabel": "Description",
+              "fieldType": "textarea"
+            }
           ]
         },
         "options": {}
@@ -19,22 +36,70 @@
       "name": "Request Event (Google)",
       "type": "n8n-nodes-base.formTrigger",
       "typeVersion": 2.2,
-      "position": [-220, 300],
+      "position": [
+        -220,
+        300
+      ],
       "webhookId": "alia-gcal-request"
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "a1", "name": "request_id", "value": "={{ $execution.id }}", "type": "string" },
-            { "id": "a2", "name": "channel", "value": "google_calendar", "type": "string" },
-            { "id": "a3", "name": "tier", "value": "T2", "type": "string" },
-            { "id": "a4", "name": "title", "value": "={{ $json.Title }}", "type": "string" },
-            { "id": "a5", "name": "start", "value": "={{ $json.Start }}", "type": "string" },
-            { "id": "a6", "name": "end", "value": "={{ $json.End }}", "type": "string" },
-            { "id": "a7", "name": "attendees", "value": "={{ $json.Attendees || '' }}", "type": "string" },
-            { "id": "a8", "name": "description", "value": "={{ $json.Description || '' }}", "type": "string" },
-            { "id": "a9", "name": "requested_at", "value": "={{ $now.toISO() }}", "type": "string" }
+            {
+              "id": "a1",
+              "name": "request_id",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "channel",
+              "value": "google_calendar",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "title",
+              "value": "={{ $json.Title }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "start",
+              "value": "={{ $json.Start }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "end",
+              "value": "={{ $json.End }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "attendees",
+              "value": "={{ $json.Attendees || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "description",
+              "value": "={{ $json.Description || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "requested_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -43,74 +108,138 @@
       "name": "Build Request",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [0, 300]
+      "position": [
+        0,
+        300
+      ]
     },
     {
       "parameters": {
         "operation": "append",
-        "documentId": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
-        "sheetName": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
-        "columns": { "mappingMode": "autoMapInputData", "value": {}, "matchingColumns": [], "schema": [] },
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
         "options": {}
       },
       "id": "alia-gcal-logreq",
       "name": "Log Request (GCal)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [220, 300]
+      "position": [
+        220,
+        300
+      ]
     },
     {
       "parameters": {
         "operation": "getAll",
-        "calendar": { "__rl": true, "value": "primary", "mode": "list", "cachedResultName": "primary" },
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list",
+          "cachedResultName": "primary"
+        },
         "returnAll": false,
         "limit": 20,
         "timeMin": "={{ $json.start }}",
         "timeMax": "={{ $json.end }}",
-        "options": { "singleEvents": true }
+        "options": {
+          "singleEvents": true
+        }
       },
       "id": "alia-gcal-conflicts",
       "name": "Check Conflicts (GCal)",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
-      "position": [440, 300],
+      "position": [
+        440,
+        300
+      ],
       "alwaysOutputData": true
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Google Calendar getAll returns events OVERLAPPING [timeMin, timeMax].\n// alwaysOutputData is on, so an empty window still yields one empty item — filter it out.\nconst req = $('Build Request').first().json;\nconst events = $input.all().filter(i => i.json && i.json.id);\n\nconst lines = events.map(e => {\n  const s = e.json.start?.dateTime || e.json.start?.date || '?';\n  return `• ${e.json.summary || '(untitled)'} — ${s}`;\n});\n\nreturn [{\n  json: {\n    ...req,\n    conflict_count: lines.length,\n    conflicts: lines.length ? lines.join('\\n') : 'None',\n  },\n}];"
+        "jsCode": "// Google Calendar getAll returns events OVERLAPPING [timeMin, timeMax].\n// alwaysOutputData is on, so an empty window still yields one empty item \u2014 filter it out.\nconst req = $('Build Request').first().json;\nconst events = $input.all().filter(i => i.json && i.json.id);\n\nconst lines = events.map(e => {\n  const s = e.json.start?.dateTime || e.json.start?.date || '?';\n  return `\u2022 ${e.json.summary || '(untitled)'} \u2014 ${s}`;\n});\n\nreturn [{\n  json: {\n    ...req,\n    conflict_count: lines.length,\n    conflicts: lines.length ? lines.join('\\n') : 'None',\n  },\n}];"
       },
       "id": "alia-gcal-summarise",
       "name": "Summarise Conflicts",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, 300]
+      "position": [
+        660,
+        300
+      ]
     },
     {
       "parameters": {
         "chatId": "YOUR_TELEGRAM_CHAT_ID",
-        "message": "=*ALIA — Approval required (T2)*\n\n*Action:* Create Google Calendar event\n*Request:* {{ $json.request_id }}\n\n*Title:* {{ $json.title }}\n*Start:* {{ $json.start }}\n*End:* {{ $json.end }}\n*Attendees:* {{ $json.attendees || '(none)' }}\n\n⚠️ *Conflicts in this window: {{ $json.conflict_count }}*\n{{ $json.conflicts }}",
+        "message": "=*ALIA \u2014 Approval required (T2)*\n\n*Action:* Create Google Calendar event\n*Request:* {{ $json.request_id }}\n\n*Title:* {{ $json.title }}\n*Start:* {{ $json.start }}\n*End:* {{ $json.end }}\n*Attendees:* {{ $json.attendees || '(none)' }}\n\n\u26a0\ufe0f *Conflicts in this window: {{ $json.conflict_count }}*\n{{ $json.conflicts }}",
         "operation": "sendAndWait",
         "responseType": "approval",
         "approvalOptions": {
-          "values": { "approvalType": "double", "approveLabel": "✅ Approve & Create", "disapproveLabel": "❌ Reject" }
+          "values": {
+            "approvalType": "double",
+            "approveLabel": "\u2705 Approve & Create",
+            "disapproveLabel": "\u274c Reject"
+          }
         },
-        "options": { "limitWaitTime": true, "resumeAmount": 30, "resumeUnit": "minutes", "appendAttribution": false }
+        "chatApproval": true,
+        "approverIds": "YOUR_TELEGRAM_USER_ID",
+        "unauthorizedReplyText": "You are not authorised to approve ALIA actions.",
+        "postDecisionBehavior": "showOutcome",
+        "options": {
+          "limitWaitTime": true,
+          "resumeAmount": 30,
+          "resumeUnit": "minutes",
+          "appendAttribution": false
+        }
       },
       "id": "alia-gcal-approval",
       "name": "Request Approval (Telegram)",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [880, 300],
+      "position": [
+        880,
+        300
+      ],
       "webhookId": "alia-gcal-approval"
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
-            { "id": "c1", "leftValue": "={{ $json.data.approved }}", "rightValue": "", "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.data.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
           ],
           "combinator": "and"
         },
@@ -120,11 +249,19 @@
       "name": "Approved?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1100, 300]
+      "position": [
+        1100,
+        300
+      ]
     },
     {
       "parameters": {
-        "calendar": { "__rl": true, "value": "primary", "mode": "list", "cachedResultName": "primary" },
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list",
+          "cachedResultName": "primary"
+        },
         "start": "={{ $('Summarise Conflicts').item.json.start }}",
         "end": "={{ $('Summarise Conflicts').item.json.end }}",
         "additionalFields": {
@@ -137,20 +274,63 @@
       "name": "Create Event (GCal)",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
-      "position": [1340, 180]
+      "position": [
+        1340,
+        180
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "s1", "name": "request_id", "value": "={{ $('Summarise Conflicts').item.json.request_id }}", "type": "string" },
-            { "id": "s2", "name": "channel", "value": "google_calendar", "type": "string" },
-            { "id": "s3", "name": "tier", "value": "T2", "type": "string" },
-            { "id": "s4", "name": "title", "value": "={{ $('Summarise Conflicts').item.json.title }}", "type": "string" },
-            { "id": "s5", "name": "conflict_count", "value": "={{ $('Summarise Conflicts').item.json.conflict_count }}", "type": "string" },
-            { "id": "s6", "name": "decision", "value": "approved", "type": "string" },
-            { "id": "s7", "name": "outcome", "value": "created", "type": "string" },
-            { "id": "s8", "name": "decided_at", "value": "={{ $now.toISO() }}", "type": "string" }
+            {
+              "id": "s1",
+              "name": "request_id",
+              "value": "={{ $('Summarise Conflicts').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "s2",
+              "name": "channel",
+              "value": "google_calendar",
+              "type": "string"
+            },
+            {
+              "id": "s3",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "s4",
+              "name": "title",
+              "value": "={{ $('Summarise Conflicts').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "s5",
+              "name": "conflict_count",
+              "value": "={{ $('Summarise Conflicts').item.json.conflict_count }}",
+              "type": "string"
+            },
+            {
+              "id": "s6",
+              "name": "decision",
+              "value": "approved",
+              "type": "string"
+            },
+            {
+              "id": "s7",
+              "name": "outcome",
+              "value": "created",
+              "type": "string"
+            },
+            {
+              "id": "s8",
+              "name": "decided_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -159,34 +339,95 @@
       "name": "Outcome: Created",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1560, 180]
+      "position": [
+        1560,
+        180
+      ]
     },
     {
       "parameters": {
         "operation": "append",
-        "documentId": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
-        "sheetName": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
-        "columns": { "mappingMode": "autoMapInputData", "value": {}, "matchingColumns": [], "schema": [] },
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
         "options": {}
       },
       "id": "alia-gcal-logok",
       "name": "Log Created (GCal)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1780, 180]
+      "position": [
+        1780,
+        180
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "r1", "name": "request_id", "value": "={{ $('Summarise Conflicts').item.json.request_id }}", "type": "string" },
-            { "id": "r2", "name": "channel", "value": "google_calendar", "type": "string" },
-            { "id": "r3", "name": "tier", "value": "T2", "type": "string" },
-            { "id": "r4", "name": "title", "value": "={{ $('Summarise Conflicts').item.json.title }}", "type": "string" },
-            { "id": "r5", "name": "conflict_count", "value": "={{ $('Summarise Conflicts').item.json.conflict_count }}", "type": "string" },
-            { "id": "r6", "name": "decision", "value": "rejected", "type": "string" },
-            { "id": "r7", "name": "outcome", "value": "not_created", "type": "string" },
-            { "id": "r8", "name": "decided_at", "value": "={{ $now.toISO() }}", "type": "string" }
+            {
+              "id": "r1",
+              "name": "request_id",
+              "value": "={{ $('Summarise Conflicts').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "r2",
+              "name": "channel",
+              "value": "google_calendar",
+              "type": "string"
+            },
+            {
+              "id": "r3",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "r4",
+              "name": "title",
+              "value": "={{ $('Summarise Conflicts').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "r5",
+              "name": "conflict_count",
+              "value": "={{ $('Summarise Conflicts').item.json.conflict_count }}",
+              "type": "string"
+            },
+            {
+              "id": "r6",
+              "name": "decision",
+              "value": "rejected",
+              "type": "string"
+            },
+            {
+              "id": "r7",
+              "name": "outcome",
+              "value": "not_created",
+              "type": "string"
+            },
+            {
+              "id": "r8",
+              "name": "decided_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -195,39 +436,162 @@
       "name": "Outcome: Rejected",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1340, 440]
+      "position": [
+        1340,
+        440
+      ]
     },
     {
       "parameters": {
         "operation": "append",
-        "documentId": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
-        "sheetName": { "__rl": true, "value": "", "mode": "list", "cachedResultName": "" },
-        "columns": { "mappingMode": "autoMapInputData", "value": {}, "matchingColumns": [], "schema": [] },
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
         "options": {}
       },
       "id": "alia-gcal-logno",
       "name": "Log Rejected (GCal)",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1560, 440]
+      "position": [
+        1560,
+        440
+      ]
     }
   ],
   "connections": {
-    "Request Event (Google)": { "main": [[{ "node": "Build Request", "type": "main", "index": 0 }]] },
-    "Build Request": { "main": [[{ "node": "Log Request (GCal)", "type": "main", "index": 0 }]] },
-    "Log Request (GCal)": { "main": [[{ "node": "Check Conflicts (GCal)", "type": "main", "index": 0 }]] },
-    "Check Conflicts (GCal)": { "main": [[{ "node": "Summarise Conflicts", "type": "main", "index": 0 }]] },
-    "Summarise Conflicts": { "main": [[{ "node": "Request Approval (Telegram)", "type": "main", "index": 0 }]] },
-    "Request Approval (Telegram)": { "main": [[{ "node": "Approved?", "type": "main", "index": 0 }]] },
-    "Approved?": {
+    "Request Event (Google)": {
       "main": [
-        [{ "node": "Create Event (GCal)", "type": "main", "index": 0 }],
-        [{ "node": "Outcome: Rejected", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Build Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Create Event (GCal)": { "main": [[{ "node": "Outcome: Created", "type": "main", "index": 0 }]] },
-    "Outcome: Created": { "main": [[{ "node": "Log Created (GCal)", "type": "main", "index": 0 }]] },
-    "Outcome: Rejected": { "main": [[{ "node": "Log Rejected (GCal)", "type": "main", "index": 0 }]] }
+    "Build Request": {
+      "main": [
+        [
+          {
+            "node": "Log Request (GCal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Request (GCal)": {
+      "main": [
+        [
+          {
+            "node": "Check Conflicts (GCal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Conflicts (GCal)": {
+      "main": [
+        [
+          {
+            "node": "Summarise Conflicts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise Conflicts": {
+      "main": [
+        [
+          {
+            "node": "Request Approval (Telegram)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request Approval (Telegram)": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Create Event (GCal)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome: Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Event (GCal)": {
+      "main": [
+        [
+          {
+            "node": "Outcome: Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Created": {
+      "main": [
+        [
+          {
+            "node": "Log Created (GCal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Rejected": {
+      "main": [
+        [
+          {
+            "node": "Log Rejected (GCal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "pinData": {}
 }
