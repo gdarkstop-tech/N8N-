@@ -2,8 +2,8 @@
   "nodes": [
     {
       "parameters": {
-        "formTitle": "ALIA \u2014 Create Calendar Event (Google)",
-        "formDescription": "Checks for conflicts, then requires approval before the event is created.",
+        "formTitle": "ALIA - Create Calendar Event (Google)",
+        "formDescription": "Checks for conflicts, then requires Telegram approval.",
         "formFields": {
           "values": [
             {
@@ -32,193 +32,30 @@
         },
         "options": {}
       },
-      "id": "alia-form-gcal",
-      "name": "Request Event (Google)",
+      "id": "goog-form",
+      "name": "Request Event",
       "type": "n8n-nodes-base.formTrigger",
       "typeVersion": 2.2,
       "position": [
-        -220,
+        -700,
         300
       ],
-      "webhookId": "alia-gcal-request"
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "a1",
-              "name": "request_id",
-              "value": "={{ $execution.id }}",
-              "type": "string"
-            },
-            {
-              "id": "a2",
-              "name": "channel",
-              "value": "google_calendar",
-              "type": "string"
-            },
-            {
-              "id": "a3",
-              "name": "tier",
-              "value": "T2",
-              "type": "string"
-            },
-            {
-              "id": "a4",
-              "name": "title",
-              "value": "={{ $json.Title }}",
-              "type": "string"
-            },
-            {
-              "id": "a5",
-              "name": "start",
-              "value": "={{ $json.Start }}",
-              "type": "string"
-            },
-            {
-              "id": "a6",
-              "name": "end",
-              "value": "={{ $json.End }}",
-              "type": "string"
-            },
-            {
-              "id": "a7",
-              "name": "attendees",
-              "value": "={{ $json.Attendees || '' }}",
-              "type": "string"
-            },
-            {
-              "id": "a8",
-              "name": "description",
-              "value": "={{ $json.Description || '' }}",
-              "type": "string"
-            },
-            {
-              "id": "a9",
-              "name": "requested_at",
-              "value": "={{ $now.toISO() }}",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "alia-gcal-build",
-      "name": "Build Request",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        0,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "append",
-        "documentId": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "sheetName": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "columns": {
-          "mappingMode": "autoMapInputData",
-          "value": {},
-          "matchingColumns": [],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "alia-gcal-logreq",
-      "name": "Log Request (GCal)",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
-      "position": [
-        220,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "getAll",
-        "calendar": {
-          "__rl": true,
-          "value": "primary",
-          "mode": "list",
-          "cachedResultName": "primary"
-        },
-        "returnAll": false,
-        "limit": 20,
-        "timeMin": "={{ $json.start }}",
-        "timeMax": "={{ $json.end }}",
-        "options": {
-          "singleEvents": true
-        }
-      },
-      "id": "alia-gcal-conflicts",
-      "name": "Check Conflicts (GCal)",
-      "type": "n8n-nodes-base.googleCalendar",
-      "typeVersion": 1.3,
-      "position": [
-        440,
-        300
-      ],
-      "alwaysOutputData": true
+      "webhookId": "goog-form-wh"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Google Calendar getAll returns events OVERLAPPING [timeMin, timeMax].\n// alwaysOutputData is on, so an empty window still yields one empty item \u2014 filter it out.\nconst req = $('Build Request').first().json;\nconst events = $input.all().filter(i => i.json && i.json.id);\n\nconst lines = events.map(e => {\n  const s = e.json.start?.dateTime || e.json.start?.date || '?';\n  return `\u2022 ${e.json.summary || '(untitled)'} \u2014 ${s}`;\n});\n\nreturn [{\n  json: {\n    ...req,\n    conflict_count: lines.length,\n    conflicts: lines.length ? lines.join('\\n') : 'None',\n  },\n}];"
+        "jsCode": "\n// --- shared helpers (inline: n8n Code nodes cannot import) ---\n\n// Deterministic content hash for idempotency.\n// Execution id is NOT a usable idempotency key: a double form submit creates two\n// executions with two different ids, so it could never match. The key must be\n// derived from the CONTENT of the request.\nfunction fnv1a(str) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 0x01000193) >>> 0;\n  }\n  return ('00000000' + h.toString(16)).slice(-8);\n}\nfunction dedupeKey(parts) {\n  const norm = parts\n    .map(function (p) { return String(p == null ? '' : p).trim().toLowerCase().replace(/\\s+/g, ' '); })\n    .join('|~|');\n  const rev = norm.split('').reverse().join('');\n  return fnv1a(norm) + fnv1a(rev) + String(norm.length);\n}\n\n// n8n hardcodes parse_mode 'Markdown' on sendAndWait. Legacy Markdown throws\n// \"Bad Request: can't parse entities\" on any unmatched * _ ` [ ] \u2014 which real\n// email WILL contain. Escaping is unreliable in legacy mode, so neutralise the\n// characters instead. Costs a little fidelity, never a failed send.\nfunction mdSafe(s) {\n  return String(s == null ? '' : s).replace(/[*_`\\[\\]]/g, ' ');\n}\n\n// Where we control parse_mode we use HTML, whose escaping is total and lossless.\nfunction htmlEsc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\n// Prefix U+200F so a mixed LTR-label / RTL-content line renders right-to-left.\nfunction rtlMark(s) {\n  const str = String(s == null ? '' : s);\n  const ARABIC = /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]/;\n  return ARABIC.test(str) ? '\u200f' + str : str;\n}\n\n// Telegram hard-caps a message at 4096 chars. Split on paragraph, then line, then\n// hard-cut, so a long email is delivered in full across several messages rather\n// than failing to send.\nfunction chunk(text, size) {\n  const out = [];\n  let buf = '';\n  const paras = String(text == null ? '' : text).split(/\\n\\n+/);\n  for (const para of paras) {\n    for (const line of para.split('\\n')) {\n      let l = line;\n      while (l.length > size) {\n        if (buf) { out.push(buf); buf = ''; }\n        out.push(l.slice(0, size));\n        l = l.slice(size);\n      }\n      if ((buf + '\\n' + l).length > size) { out.push(buf); buf = l; }\n      else { buf = buf ? buf + '\\n' + l : l; }\n    }\n    if ((buf + '\\n\\n').length < size) { buf += '\\n\\n'; }\n  }\n  if (buf.trim()) out.push(buf);\n  return out.length ? out : ['(empty)'];\n}\n\n// RFC-ish address check. Deliberately strict-ish and deterministic: validation is\n// infrastructure's job, never the model's.\nfunction validEmail(a) {\n  return /^[^\\s@,;]+@[^\\s@,;]+\\.[^\\s@,;]{2,}$/.test(String(a == null ? '' : a).trim());\n}\nfunction splitAddrs(s) {\n  return String(s == null ? '' : s).split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);\n}\n\nconst f = $input.first().json;\n\nconst title       = f['Title'] || '';\nconst startRaw    = f['Start'] || '';\nconst endRaw      = f['End'] || '';\nconst attendees   = f['Attendees'] || '';\nconst description = f['Description'] || '';\n\n// --- deterministic datetime validation, before anything reaches approval ---\nconst errors = [];\nconst start = new Date(startRaw);\nconst end   = new Date(endRaw);\n\nif (isNaN(start.getTime())) errors.push('Start is not a valid date/time: ' + startRaw);\nif (isNaN(end.getTime()))   errors.push('End is not a valid date/time: ' + endRaw);\nif (!isNaN(start.getTime()) && !isNaN(end.getTime())) {\n  if (end.getTime() <= start.getTime()) errors.push('End must be after Start');\n  if (end.getTime() - start.getTime() > 1000 * 60 * 60 * 24 * 7) {\n    errors.push('Event is longer than 7 days - probably a typo');\n  }\n  if (start.getTime() < Date.now() - 1000 * 60 * 5) {\n    errors.push('Start is in the past: ' + start.toISOString());\n  }\n}\nif (!String(title).trim()) errors.push('Title is empty');\nfor (const a of splitAddrs(attendees)) {\n  if (!validEmail(a)) errors.push('Invalid attendee address: ' + a);\n}\n\nconst ok = errors.length === 0;\nconst WIDEN = 12 * 60 * 60 * 1000;\n\nreturn [{\n  json: {\n    request_id: String($execution.id),\n    dedupe_key: dedupeKey(['google_calendar', title, startRaw, endRaw, attendees]),\n    channel: 'google_calendar',\n    title: title,\n    start: ok ? start.toISOString() : '',\n    end:   ok ? end.toISOString()   : '',\n    // Widened probe window. Narrow windows miss events that begin earlier and run in.\n    probe_start: ok ? new Date(start.getTime() - WIDEN).toISOString() : '',\n    probe_end:   ok ? new Date(end.getTime()   + WIDEN).toISOString() : '',\n    attendees: splitAddrs(attendees).join(','),\n    description: description,\n    valid: ok,\n    validation_error: errors.join('; '),\n  },\n}];\n"
       },
-      "id": "alia-gcal-summarise",
-      "name": "Summarise Conflicts",
+      "id": "goog-build",
+      "name": "Build & Validate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        660,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "chatId": "YOUR_TELEGRAM_CHAT_ID",
-        "message": "=*ALIA \u2014 Approval required (T2)*\n\n*Action:* Create Google Calendar event\n*Request:* {{ $json.request_id }}\n\n*Title:* {{ $json.title }}\n*Start:* {{ $json.start }}\n*End:* {{ $json.end }}\n*Attendees:* {{ $json.attendees || '(none)' }}\n\n\u26a0\ufe0f *Conflicts in this window: {{ $json.conflict_count }}*\n{{ $json.conflicts }}",
-        "operation": "sendAndWait",
-        "responseType": "approval",
-        "approvalOptions": {
-          "values": {
-            "approvalType": "double",
-            "approveLabel": "\u2705 Approve & Create",
-            "disapproveLabel": "\u274c Reject"
-          }
-        },
-        "chatApproval": true,
-        "approverIds": "YOUR_TELEGRAM_USER_ID",
-        "unauthorizedReplyText": "You are not authorised to approve ALIA actions.",
-        "postDecisionBehavior": "showOutcome",
-        "options": {
-          "limitWaitTime": true,
-          "resumeAmount": 30,
-          "resumeUnit": "minutes",
-          "appendAttribution": false
-        }
-      },
-      "id": "alia-gcal-approval",
-      "name": "Request Approval (Telegram)",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        880,
+        -480,
         300
       ],
-      "webhookId": "alia-gcal-approval"
+      "notes": "Validates the times deterministically and widens the conflict probe window."
     },
     {
       "parameters": {
@@ -226,13 +63,13 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict",
+            "typeValidation": "loose",
             "version": 2
           },
           "conditions": [
             {
               "id": "c1",
-              "leftValue": "={{ $json.data.approved }}",
+              "leftValue": "={{ $json.valid }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -245,13 +82,247 @@
         },
         "options": {}
       },
-      "id": "alia-gcal-approved",
+      "id": "goog-valid",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Assistant Action Log"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "dedupe_key",
+              "condition": "eq",
+              "keyValue": "={{ $json.dedupe_key }}"
+            },
+            {
+              "keyName": "outcome",
+              "condition": "eq",
+              "keyValue": "succeeded"
+            }
+          ]
+        },
+        "returnAll": false,
+        "limit": 1
+      },
+      "id": "goog-dupq",
+      "name": "Check Duplicate",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -40,
+        200
+      ],
+      "alwaysOutputData": true,
+      "notes": "Idempotency probe. alwaysOutputData is ON so an empty result still emits an item."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst ctx = $('Build & Validate').first().json;\nconst hits = $input.all().filter(function (i) { return i.json && i.json.dedupe_key; });\nreturn [{ json: Object.assign({}, ctx, { is_duplicate: hits.length > 0 }) }];\n"
+      },
+      "id": "goog-dupe",
+      "name": "Evaluate Duplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "goog-dupif",
+      "name": "Already Created?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list",
+          "cachedResultName": "primary"
+        },
+        "returnAll": false,
+        "limit": 250,
+        "timeMin": "={{ $json.probe_start }}",
+        "timeMax": "={{ $json.probe_end }}",
+        "options": {
+          "singleEvents": true
+        }
+      },
+      "id": "goog-probe",
+      "name": "Probe Calendar",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        620,
+        300
+      ],
+      "alwaysOutputData": true,
+      "notes": "Widened window + limit 250. The old limit of 20 could silently miss conflicts."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\n// --- shared helpers (inline: n8n Code nodes cannot import) ---\n\n// Deterministic content hash for idempotency.\n// Execution id is NOT a usable idempotency key: a double form submit creates two\n// executions with two different ids, so it could never match. The key must be\n// derived from the CONTENT of the request.\nfunction fnv1a(str) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 0x01000193) >>> 0;\n  }\n  return ('00000000' + h.toString(16)).slice(-8);\n}\nfunction dedupeKey(parts) {\n  const norm = parts\n    .map(function (p) { return String(p == null ? '' : p).trim().toLowerCase().replace(/\\s+/g, ' '); })\n    .join('|~|');\n  const rev = norm.split('').reverse().join('');\n  return fnv1a(norm) + fnv1a(rev) + String(norm.length);\n}\n\n// n8n hardcodes parse_mode 'Markdown' on sendAndWait. Legacy Markdown throws\n// \"Bad Request: can't parse entities\" on any unmatched * _ ` [ ] \u2014 which real\n// email WILL contain. Escaping is unreliable in legacy mode, so neutralise the\n// characters instead. Costs a little fidelity, never a failed send.\nfunction mdSafe(s) {\n  return String(s == null ? '' : s).replace(/[*_`\\[\\]]/g, ' ');\n}\n\n// Where we control parse_mode we use HTML, whose escaping is total and lossless.\nfunction htmlEsc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\n// Prefix U+200F so a mixed LTR-label / RTL-content line renders right-to-left.\nfunction rtlMark(s) {\n  const str = String(s == null ? '' : s);\n  const ARABIC = /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]/;\n  return ARABIC.test(str) ? '\u200f' + str : str;\n}\n\n// Telegram hard-caps a message at 4096 chars. Split on paragraph, then line, then\n// hard-cut, so a long email is delivered in full across several messages rather\n// than failing to send.\nfunction chunk(text, size) {\n  const out = [];\n  let buf = '';\n  const paras = String(text == null ? '' : text).split(/\\n\\n+/);\n  for (const para of paras) {\n    for (const line of para.split('\\n')) {\n      let l = line;\n      while (l.length > size) {\n        if (buf) { out.push(buf); buf = ''; }\n        out.push(l.slice(0, size));\n        l = l.slice(size);\n      }\n      if ((buf + '\\n' + l).length > size) { out.push(buf); buf = l; }\n      else { buf = buf ? buf + '\\n' + l : l; }\n    }\n    if ((buf + '\\n\\n').length < size) { buf += '\\n\\n'; }\n  }\n  if (buf.trim()) out.push(buf);\n  return out.length ? out : ['(empty)'];\n}\n\n// RFC-ish address check. Deliberately strict-ish and deterministic: validation is\n// infrastructure's job, never the model's.\nfunction validEmail(a) {\n  return /^[^\\s@,;]+@[^\\s@,;]+\\.[^\\s@,;]{2,}$/.test(String(a == null ? '' : a).trim());\n}\nfunction splitAddrs(s) {\n  return String(s == null ? '' : s).split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);\n}\n\nconst req = $('Build & Validate').first().json;\nconst reqStart = new Date(req.start).getTime();\nconst reqEnd   = new Date(req.end).getTime();\n\n// The probe window is deliberately wider than the request, so filter for TRUE\n// overlap here rather than trusting the provider's window semantics.\n// Overlap test: existing.start < requested.end AND existing.end > requested.start\nconst rows = [];\nfor (const e of $input.all()) {\n  if (!e.json || !e.json.id) continue;\n\n    const s = e.json.start && (e.json.start.dateTime || e.json.start.date);\n    const t = e.json.end   && (e.json.end.dateTime   || e.json.end.date);\n    const name = e.json.summary || '(untitled)';\n\n    if (!s || !t) continue;\n    const es = new Date(s).getTime();\n    const ee = new Date(t).getTime();\n    if (isNaN(es) || isNaN(ee)) continue;\n    if (es < reqEnd && ee > reqStart) {\n      rows.push('- ' + mdSafe(name) + '  ' + new Date(es).toISOString() + ' -> ' + new Date(ee).toISOString());\n    }\n}\n\nconst truncated = rows.length > 15;\nconst shown = rows.slice(0, 15);\nif (truncated) shown.push('- ... and ' + (rows.length - 15) + ' more');\n\nreturn [{\n  json: Object.assign({}, req, {\n    conflict_count: rows.length,\n    conflicts: rows.length ? rtlMark(shown.join('\\n')) : 'None',\n  }),\n}];\n"
+      },
+      "id": "goog-conf",
+      "name": "Summarise Conflicts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "message": "=ALIA - Approval required (T2)\n\nAction: Create Google event\nRequest: {{{{ $json.request_id }}}}\n\nTitle: {{{{ $json.title }}}}\nStart: {{{{ $json.start }}}}\nEnd: {{{{ $json.end }}}}\nAttendees: {{{{ $json.attendees || '(none)' }}}}\n\nConflicts in this window: {{{{ $json.conflict_count }}}}\n{{{{ $json.conflicts }}}}\n\nApprove to create this event.",
+        "operation": "sendAndWait",
+        "responseType": "approval",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "approveLabel": "Approve & Create",
+            "disapproveLabel": "Reject"
+          }
+        },
+        "chatApproval": true,
+        "approverIds": "YOUR_TELEGRAM_USER_ID",
+        "unauthorizedReplyText": "You are not authorised to approve ALIA actions.",
+        "postDecisionBehavior": "showOutcome",
+        "options": {
+          "limitWaitTime": {
+            "values": {
+              "limitType": "afterTimeInterval",
+              "resumeAmount": 240,
+              "resumeUnit": "minutes"
+            }
+          },
+          "appendAttribution": false
+        }
+      },
+      "id": "goog-appr",
+      "name": "Request Approval",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1060,
+        300
+      ],
+      "webhookId": "goog-appr-wh"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.data && $json.data.approved === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "goog-apif",
       "name": "Approved?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1100,
+        1280,
         300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.data && $json.data.approved !== undefined }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "goog-dcif",
+      "name": "Decided?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1280,
+        520
       ]
     },
     {
@@ -262,118 +333,117 @@
           "mode": "list",
           "cachedResultName": "primary"
         },
-        "start": "={{ $('Summarise Conflicts').item.json.start }}",
-        "end": "={{ $('Summarise Conflicts').item.json.end }}",
+        "start": "={{ $('Build & Validate').item.json.start }}",
+        "end": "={{ $('Build & Validate').item.json.end }}",
         "additionalFields": {
-          "summary": "={{ $('Summarise Conflicts').item.json.title }}",
-          "description": "={{ $('Summarise Conflicts').item.json.description }}",
-          "attendees": "={{ ($('Summarise Conflicts').item.json.attendees || '').split(',').map(s => s.trim()).filter(Boolean) }}"
+          "summary": "={{ $('Build & Validate').item.json.title }}",
+          "description": "={{ $('Build & Validate').item.json.description }}",
+          "attendees": "={{ ($('Build & Validate').item.json.attendees || '').split(',').filter(Boolean) }}"
         }
       },
-      "id": "alia-gcal-create",
-      "name": "Create Event (GCal)",
+      "id": "goog-create",
+      "name": "Create Event (Google)",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
       "position": [
-        1340,
-        180
-      ]
+        1520,
+        120
+      ],
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
             {
-              "id": "s1",
+              "id": "a0",
               "name": "request_id",
-              "value": "={{ $('Summarise Conflicts').item.json.request_id }}",
+              "value": "={{ $('Build & Validate').item.json.request_id }}",
               "type": "string"
             },
             {
-              "id": "s2",
+              "id": "a1",
+              "name": "dedupe_key",
+              "value": "={{ $('Build & Validate').item.json.dedupe_key }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
               "name": "channel",
               "value": "google_calendar",
               "type": "string"
             },
             {
-              "id": "s3",
+              "id": "a4",
+              "name": "action",
+              "value": "create_event",
+              "type": "string"
+            },
+            {
+              "id": "a5",
               "name": "tier",
               "value": "T2",
               "type": "string"
             },
             {
-              "id": "s4",
-              "name": "title",
-              "value": "={{ $('Summarise Conflicts').item.json.title }}",
+              "id": "a6",
+              "name": "approver_id",
+              "value": "={{ (($('Request Approval').item.json.data && $('Request Approval').item.json.data.responder && $('Request Approval').item.json.data.responder.id) || 'unknown') }}",
               "type": "string"
             },
             {
-              "id": "s5",
-              "name": "conflict_count",
-              "value": "={{ $('Summarise Conflicts').item.json.conflict_count }}",
+              "id": "a7",
+              "name": "subject",
+              "value": "={{ $('Build & Validate').item.json.title }}",
               "type": "string"
             },
             {
-              "id": "s6",
+              "id": "a8",
+              "name": "target",
+              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "importance",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a10",
               "name": "decision",
               "value": "approved",
               "type": "string"
             },
             {
-              "id": "s7",
+              "id": "a11",
               "name": "outcome",
-              "value": "created",
+              "value": "succeeded",
               "type": "string"
             },
             {
-              "id": "s8",
-              "name": "decided_at",
-              "value": "={{ $now.toISO() }}",
+              "id": "a12",
+              "name": "detail",
+              "value": "Event created after approval",
               "type": "string"
             }
           ]
         },
         "options": {}
       },
-      "id": "alia-gcal-out-ok",
+      "id": "goog-o1",
       "name": "Outcome: Created",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1560,
-        180
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "append",
-        "documentId": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "sheetName": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "columns": {
-          "mappingMode": "autoMapInputData",
-          "value": {},
-          "matchingColumns": [],
-          "schema": []
-        },
-        "options": {}
-      },
-      "id": "alia-gcal-logok",
-      "name": "Log Created (GCal)",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
-      "position": [
-        1780,
-        180
+        1760,
+        60
       ]
     },
     {
@@ -381,134 +451,717 @@
         "assignments": {
           "assignments": [
             {
-              "id": "r1",
+              "id": "a0",
               "name": "request_id",
-              "value": "={{ $('Summarise Conflicts').item.json.request_id }}",
+              "value": "={{ $('Build & Validate').item.json.request_id }}",
               "type": "string"
             },
             {
-              "id": "r2",
+              "id": "a1",
+              "name": "dedupe_key",
+              "value": "={{ $('Build & Validate').item.json.dedupe_key }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
               "name": "channel",
               "value": "google_calendar",
               "type": "string"
             },
             {
-              "id": "r3",
+              "id": "a4",
+              "name": "action",
+              "value": "create_event",
+              "type": "string"
+            },
+            {
+              "id": "a5",
               "name": "tier",
               "value": "T2",
               "type": "string"
             },
             {
-              "id": "r4",
-              "name": "title",
-              "value": "={{ $('Summarise Conflicts').item.json.title }}",
+              "id": "a6",
+              "name": "approver_id",
+              "value": "={{ (($('Request Approval').item.json.data && $('Request Approval').item.json.data.responder && $('Request Approval').item.json.data.responder.id) || 'unknown') }}",
               "type": "string"
             },
             {
-              "id": "r5",
-              "name": "conflict_count",
-              "value": "={{ $('Summarise Conflicts').item.json.conflict_count }}",
+              "id": "a7",
+              "name": "subject",
+              "value": "={{ $('Build & Validate').item.json.title }}",
               "type": "string"
             },
             {
-              "id": "r6",
+              "id": "a8",
+              "name": "target",
+              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "importance",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a10",
               "name": "decision",
-              "value": "rejected",
+              "value": "approved",
               "type": "string"
             },
             {
-              "id": "r7",
+              "id": "a11",
               "name": "outcome",
-              "value": "not_created",
+              "value": "failed",
               "type": "string"
             },
             {
-              "id": "r8",
-              "name": "decided_at",
-              "value": "={{ $now.toISO() }}",
+              "id": "a12",
+              "name": "detail",
+              "value": "={{ 'Provider rejected the create: ' + ($json.error && $json.error.message || 'unknown error') }}",
               "type": "string"
             }
           ]
         },
         "options": {}
       },
-      "id": "alia-gcal-out-no",
-      "name": "Outcome: Rejected",
+      "id": "goog-o6",
+      "name": "Outcome: Create Failed",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1340,
-        440
+        1760,
+        240
       ]
     },
     {
       "parameters": {
-        "operation": "append",
-        "documentId": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "sheetName": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "columns": {
-          "mappingMode": "autoMapInputData",
-          "value": {},
-          "matchingColumns": [],
-          "schema": []
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "request_id",
+              "value": "={{ $('Build & Validate').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a1",
+              "name": "dedupe_key",
+              "value": "={{ $('Build & Validate').item.json.dedupe_key }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "channel",
+              "value": "google_calendar",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "action",
+              "value": "create_event",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "approver_id",
+              "value": "={{ (($('Request Approval').item.json.data && $('Request Approval').item.json.data.responder && $('Request Approval').item.json.data.responder.id) || 'unknown') }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "subject",
+              "value": "={{ $('Build & Validate').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "target",
+              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "importance",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a10",
+              "name": "decision",
+              "value": "rejected",
+              "type": "string"
+            },
+            {
+              "id": "a11",
+              "name": "outcome",
+              "value": "not_created",
+              "type": "string"
+            },
+            {
+              "id": "a12",
+              "name": "detail",
+              "value": "Owner rejected the request",
+              "type": "string"
+            }
+          ]
         },
         "options": {}
       },
-      "id": "alia-gcal-logno",
-      "name": "Log Rejected (GCal)",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
+      "id": "goog-o2",
+      "name": "Outcome: Rejected",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
-        1560,
-        440
+        1520,
+        460
       ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "request_id",
+              "value": "={{ $('Build & Validate').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a1",
+              "name": "dedupe_key",
+              "value": "={{ $('Build & Validate').item.json.dedupe_key }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "channel",
+              "value": "google_calendar",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "action",
+              "value": "create_event",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "approver_id",
+              "value": "={{ '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "subject",
+              "value": "={{ $('Build & Validate').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "target",
+              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "importance",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a10",
+              "name": "decision",
+              "value": "timed_out",
+              "type": "string"
+            },
+            {
+              "id": "a11",
+              "name": "outcome",
+              "value": "not_created",
+              "type": "string"
+            },
+            {
+              "id": "a12",
+              "name": "detail",
+              "value": "No response within the approval window",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "goog-o3",
+      "name": "Outcome: Timed Out",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1520,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "request_id",
+              "value": "={{ $('Build & Validate').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a1",
+              "name": "dedupe_key",
+              "value": "={{ $('Build & Validate').item.json.dedupe_key }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "channel",
+              "value": "google_calendar",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "action",
+              "value": "create_event",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "approver_id",
+              "value": "={{ '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "subject",
+              "value": "={{ $('Build & Validate').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "target",
+              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "importance",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a10",
+              "name": "decision",
+              "value": "duplicate_suppressed",
+              "type": "string"
+            },
+            {
+              "id": "a11",
+              "name": "outcome",
+              "value": "not_created",
+              "type": "string"
+            },
+            {
+              "id": "a12",
+              "name": "detail",
+              "value": "Identical event already created",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "goog-o4",
+      "name": "Outcome: Duplicate",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        620,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "request_id",
+              "value": "={{ $('Build & Validate').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a1",
+              "name": "dedupe_key",
+              "value": "={{ $('Build & Validate').item.json.dedupe_key }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "channel",
+              "value": "google_calendar",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "action",
+              "value": "create_event",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "approver_id",
+              "value": "={{ '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "subject",
+              "value": "={{ $('Build & Validate').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "target",
+              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "importance",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a10",
+              "name": "decision",
+              "value": "validation_failed",
+              "type": "string"
+            },
+            {
+              "id": "a11",
+              "name": "outcome",
+              "value": "not_created",
+              "type": "string"
+            },
+            {
+              "id": "a12",
+              "name": "detail",
+              "value": "={{ $('Build & Validate').item.json.validation_error }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "goog-o5",
+      "name": "Outcome: Invalid",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -260,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Assistant Action Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "request_id": "={{ $json.request_id }}",
+            "dedupe_key": "={{ $json.dedupe_key }}",
+            "ts": "={{ $json.ts }}",
+            "channel": "={{ $json.channel }}",
+            "action": "={{ $json.action }}",
+            "tier": "={{ $json.tier }}",
+            "approver_id": "={{ $json.approver_id }}",
+            "subject": "={{ $json.subject }}",
+            "target": "={{ $json.target }}",
+            "importance": "={{ $json.importance }}",
+            "decision": "={{ $json.decision }}",
+            "outcome": "={{ $json.outcome }}",
+            "detail": "={{ $json.detail }}"
+          },
+          "schema": [
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "dedupe_key",
+              "displayName": "dedupe_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action",
+              "displayName": "action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tier",
+              "displayName": "tier",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approver_id",
+              "displayName": "approver_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "target",
+              "displayName": "target",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "importance",
+              "displayName": "importance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "goog-audit",
+      "name": "Audit Log",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2020,
+        380
+      ],
+      "notes": "Single shared audit sink. Every branch writes the identical column set."
     }
   ],
   "connections": {
-    "Request Event (Google)": {
+    "Request Event": {
       "main": [
         [
           {
-            "node": "Build Request",
+            "node": "Build & Validate",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Request": {
+    "Build & Validate": {
       "main": [
         [
           {
-            "node": "Log Request (GCal)",
+            "node": "Valid?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Log Request (GCal)": {
+    "Valid?": {
       "main": [
         [
           {
-            "node": "Check Conflicts (GCal)",
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome: Invalid",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Check Conflicts (GCal)": {
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Already Created?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Created?": {
+      "main": [
+        [
+          {
+            "node": "Outcome: Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Probe Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Probe Calendar": {
       "main": [
         [
           {
@@ -523,14 +1176,14 @@
       "main": [
         [
           {
-            "node": "Request Approval (Telegram)",
+            "node": "Request Approval",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Request Approval (Telegram)": {
+    "Request Approval": {
       "main": [
         [
           {
@@ -545,25 +1198,50 @@
       "main": [
         [
           {
-            "node": "Create Event (GCal)",
+            "node": "Create Event (Google)",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Outcome: Rejected",
+            "node": "Decided?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Create Event (GCal)": {
+    "Decided?": {
+      "main": [
+        [
+          {
+            "node": "Outcome: Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome: Timed Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Event (Google)": {
       "main": [
         [
           {
             "node": "Outcome: Created",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome: Create Failed",
             "type": "main",
             "index": 0
           }
@@ -574,7 +1252,18 @@
       "main": [
         [
           {
-            "node": "Log Created (GCal)",
+            "node": "Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Create Failed": {
+      "main": [
+        [
+          {
+            "node": "Audit Log",
             "type": "main",
             "index": 0
           }
@@ -585,7 +1274,40 @@
       "main": [
         [
           {
-            "node": "Log Rejected (GCal)",
+            "node": "Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Timed Out": {
+      "main": [
+        [
+          {
+            "node": "Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Invalid": {
+      "main": [
+        [
+          {
+            "node": "Audit Log",
             "type": "main",
             "index": 0
           }

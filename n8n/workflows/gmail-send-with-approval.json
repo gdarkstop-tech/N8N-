@@ -2,52 +2,67 @@
   "nodes": [
     {
       "parameters": {
-        "formTitle": "ALIA - Create Calendar Event (Outlook)",
-        "formDescription": "Checks for conflicts, then requires Telegram approval.",
+        "formTitle": "ALIA - Send Email (Gmail)",
+        "formDescription": "Requires approval in Telegram before anything is sent.",
         "formFields": {
           "values": [
             {
-              "fieldLabel": "Title",
+              "fieldLabel": "To",
+              "placeholder": "a@x.com, b@y.com",
               "requiredField": true
             },
             {
-              "fieldLabel": "Start",
-              "placeholder": "2026-09-22T14:00:00+03:00",
+              "fieldLabel": "CC",
+              "placeholder": "optional"
+            },
+            {
+              "fieldLabel": "BCC",
+              "placeholder": "optional"
+            },
+            {
+              "fieldLabel": "Subject",
               "requiredField": true
             },
             {
-              "fieldLabel": "End",
-              "placeholder": "2026-09-22T15:00:00+03:00",
+              "fieldLabel": "Body",
+              "fieldType": "textarea",
               "requiredField": true
             },
             {
-              "fieldLabel": "Attendees",
-              "placeholder": "a@x.com, b@y.com"
-            },
-            {
-              "fieldLabel": "Description",
-              "fieldType": "textarea"
+              "fieldLabel": "Format",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Text"
+                  },
+                  {
+                    "option": "HTML"
+                  }
+                ]
+              },
+              "requiredField": true
             }
           ]
         },
         "options": {}
       },
-      "id": "outl-form",
-      "name": "Request Event",
+      "id": "gma-form",
+      "name": "Request Email",
       "type": "n8n-nodes-base.formTrigger",
       "typeVersion": 2.2,
       "position": [
         -700,
         300
       ],
-      "webhookId": "outl-form-wh"
+      "webhookId": "gma-form-wh"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\n// --- shared helpers (inline: n8n Code nodes cannot import) ---\n\n// Deterministic content hash for idempotency.\n// Execution id is NOT a usable idempotency key: a double form submit creates two\n// executions with two different ids, so it could never match. The key must be\n// derived from the CONTENT of the request.\nfunction fnv1a(str) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 0x01000193) >>> 0;\n  }\n  return ('00000000' + h.toString(16)).slice(-8);\n}\nfunction dedupeKey(parts) {\n  const norm = parts\n    .map(function (p) { return String(p == null ? '' : p).trim().toLowerCase().replace(/\\s+/g, ' '); })\n    .join('|~|');\n  const rev = norm.split('').reverse().join('');\n  return fnv1a(norm) + fnv1a(rev) + String(norm.length);\n}\n\n// n8n hardcodes parse_mode 'Markdown' on sendAndWait. Legacy Markdown throws\n// \"Bad Request: can't parse entities\" on any unmatched * _ ` [ ] \u2014 which real\n// email WILL contain. Escaping is unreliable in legacy mode, so neutralise the\n// characters instead. Costs a little fidelity, never a failed send.\nfunction mdSafe(s) {\n  return String(s == null ? '' : s).replace(/[*_`\\[\\]]/g, ' ');\n}\n\n// Where we control parse_mode we use HTML, whose escaping is total and lossless.\nfunction htmlEsc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\n// Prefix U+200F so a mixed LTR-label / RTL-content line renders right-to-left.\nfunction rtlMark(s) {\n  const str = String(s == null ? '' : s);\n  const ARABIC = /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]/;\n  return ARABIC.test(str) ? '\u200f' + str : str;\n}\n\n// Telegram hard-caps a message at 4096 chars. Split on paragraph, then line, then\n// hard-cut, so a long email is delivered in full across several messages rather\n// than failing to send.\nfunction chunk(text, size) {\n  const out = [];\n  let buf = '';\n  const paras = String(text == null ? '' : text).split(/\\n\\n+/);\n  for (const para of paras) {\n    for (const line of para.split('\\n')) {\n      let l = line;\n      while (l.length > size) {\n        if (buf) { out.push(buf); buf = ''; }\n        out.push(l.slice(0, size));\n        l = l.slice(size);\n      }\n      if ((buf + '\\n' + l).length > size) { out.push(buf); buf = l; }\n      else { buf = buf ? buf + '\\n' + l : l; }\n    }\n    if ((buf + '\\n\\n').length < size) { buf += '\\n\\n'; }\n  }\n  if (buf.trim()) out.push(buf);\n  return out.length ? out : ['(empty)'];\n}\n\n// RFC-ish address check. Deliberately strict-ish and deterministic: validation is\n// infrastructure's job, never the model's.\nfunction validEmail(a) {\n  return /^[^\\s@,;]+@[^\\s@,;]+\\.[^\\s@,;]{2,}$/.test(String(a == null ? '' : a).trim());\n}\nfunction splitAddrs(s) {\n  return String(s == null ? '' : s).split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);\n}\n\nconst f = $input.first().json;\n\nconst title       = f['Title'] || '';\nconst startRaw    = f['Start'] || '';\nconst endRaw      = f['End'] || '';\nconst attendees   = f['Attendees'] || '';\nconst description = f['Description'] || '';\n\n// --- deterministic datetime validation, before anything reaches approval ---\nconst errors = [];\nconst start = new Date(startRaw);\nconst end   = new Date(endRaw);\n\nif (isNaN(start.getTime())) errors.push('Start is not a valid date/time: ' + startRaw);\nif (isNaN(end.getTime()))   errors.push('End is not a valid date/time: ' + endRaw);\nif (!isNaN(start.getTime()) && !isNaN(end.getTime())) {\n  if (end.getTime() <= start.getTime()) errors.push('End must be after Start');\n  if (end.getTime() - start.getTime() > 1000 * 60 * 60 * 24 * 7) {\n    errors.push('Event is longer than 7 days - probably a typo');\n  }\n  if (start.getTime() < Date.now() - 1000 * 60 * 5) {\n    errors.push('Start is in the past: ' + start.toISOString());\n  }\n}\nif (!String(title).trim()) errors.push('Title is empty');\nfor (const a of splitAddrs(attendees)) {\n  if (!validEmail(a)) errors.push('Invalid attendee address: ' + a);\n}\n\nconst ok = errors.length === 0;\nconst WIDEN = 12 * 60 * 60 * 1000;\n\nreturn [{\n  json: {\n    request_id: String($execution.id),\n    dedupe_key: dedupeKey(['outlook_calendar', title, startRaw, endRaw, attendees]),\n    channel: 'outlook_calendar',\n    title: title,\n    start: ok ? start.toISOString() : '',\n    end:   ok ? end.toISOString()   : '',\n    // Widened probe window. Narrow windows miss events that begin earlier and run in.\n    probe_start: ok ? new Date(start.getTime() - WIDEN).toISOString() : '',\n    probe_end:   ok ? new Date(end.getTime()   + WIDEN).toISOString() : '',\n    attendees: splitAddrs(attendees).join(','),\n    description: description,\n    valid: ok,\n    validation_error: errors.join('; '),\n  },\n}];\n"
+        "jsCode": "\n// --- shared helpers (inline: n8n Code nodes cannot import) ---\n\n// Deterministic content hash for idempotency.\n// Execution id is NOT a usable idempotency key: a double form submit creates two\n// executions with two different ids, so it could never match. The key must be\n// derived from the CONTENT of the request.\nfunction fnv1a(str) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 0x01000193) >>> 0;\n  }\n  return ('00000000' + h.toString(16)).slice(-8);\n}\nfunction dedupeKey(parts) {\n  const norm = parts\n    .map(function (p) { return String(p == null ? '' : p).trim().toLowerCase().replace(/\\s+/g, ' '); })\n    .join('|~|');\n  const rev = norm.split('').reverse().join('');\n  return fnv1a(norm) + fnv1a(rev) + String(norm.length);\n}\n\n// n8n hardcodes parse_mode 'Markdown' on sendAndWait. Legacy Markdown throws\n// \"Bad Request: can't parse entities\" on any unmatched * _ ` [ ] \u2014 which real\n// email WILL contain. Escaping is unreliable in legacy mode, so neutralise the\n// characters instead. Costs a little fidelity, never a failed send.\nfunction mdSafe(s) {\n  return String(s == null ? '' : s).replace(/[*_`\\[\\]]/g, ' ');\n}\n\n// Where we control parse_mode we use HTML, whose escaping is total and lossless.\nfunction htmlEsc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\n// Prefix U+200F so a mixed LTR-label / RTL-content line renders right-to-left.\nfunction rtlMark(s) {\n  const str = String(s == null ? '' : s);\n  const ARABIC = /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]/;\n  return ARABIC.test(str) ? '\u200f' + str : str;\n}\n\n// Telegram hard-caps a message at 4096 chars. Split on paragraph, then line, then\n// hard-cut, so a long email is delivered in full across several messages rather\n// than failing to send.\nfunction chunk(text, size) {\n  const out = [];\n  let buf = '';\n  const paras = String(text == null ? '' : text).split(/\\n\\n+/);\n  for (const para of paras) {\n    for (const line of para.split('\\n')) {\n      let l = line;\n      while (l.length > size) {\n        if (buf) { out.push(buf); buf = ''; }\n        out.push(l.slice(0, size));\n        l = l.slice(size);\n      }\n      if ((buf + '\\n' + l).length > size) { out.push(buf); buf = l; }\n      else { buf = buf ? buf + '\\n' + l : l; }\n    }\n    if ((buf + '\\n\\n').length < size) { buf += '\\n\\n'; }\n  }\n  if (buf.trim()) out.push(buf);\n  return out.length ? out : ['(empty)'];\n}\n\n// RFC-ish address check. Deliberately strict-ish and deterministic: validation is\n// infrastructure's job, never the model's.\nfunction validEmail(a) {\n  return /^[^\\s@,;]+@[^\\s@,;]+\\.[^\\s@,;]{2,}$/.test(String(a == null ? '' : a).trim());\n}\nfunction splitAddrs(s) {\n  return String(s == null ? '' : s).split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);\n}\n\nconst f = $input.first().json;\n\nconst to      = f['To'] || '';\nconst cc      = f['CC'] || '';\nconst bcc     = f['BCC'] || '';\nconst subject = f['Subject'] || '';\nconst body    = f['Body'] || '';\nconst format  = String(f['Format'] || 'Text').toLowerCase() === 'html' ? 'html' : 'text';\n\n// --- deterministic validation. The model is not involved in any of this. ---\nconst errors = [];\nconst toList = splitAddrs(to);\nif (toList.length === 0) errors.push('No recipient supplied');\nfor (const a of toList.concat(splitAddrs(cc), splitAddrs(bcc))) {\n  if (!validEmail(a)) errors.push('Invalid address: ' + a);\n}\nif (!String(subject).trim()) errors.push('Subject is empty');\nif (!String(body).trim())    errors.push('Body is empty');\n\nreturn [{\n  json: {\n    request_id: String($execution.id),\n    dedupe_key: dedupeKey(['gmail', to, cc, bcc, subject, body]),\n    channel: 'gmail',\n    to: toList.join(','),\n    cc: splitAddrs(cc).join(','),\n    bcc: splitAddrs(bcc).join(','),\n    subject: subject,\n    body: body,\n    format: format,\n    valid: errors.length === 0,\n    validation_error: errors.join('; '),\n  },\n}];\n"
       },
-      "id": "outl-build",
+      "id": "gma-build",
       "name": "Build & Validate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -55,7 +70,7 @@
         -480,
         300
       ],
-      "notes": "Validates the times deterministically and widens the conflict probe window."
+      "notes": "Deterministic validation + content-derived idempotency key."
     },
     {
       "parameters": {
@@ -82,7 +97,7 @@
         },
         "options": {}
       },
-      "id": "outl-valid",
+      "id": "gma-valid",
       "name": "Valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -118,7 +133,7 @@
         "returnAll": false,
         "limit": 1
       },
-      "id": "outl-dupq",
+      "id": "gma-dupq",
       "name": "Check Duplicate",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
@@ -132,9 +147,9 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst ctx = $('Build & Validate').first().json;\nconst hits = $input.all().filter(function (i) { return i.json && i.json.dedupe_key; });\nreturn [{ json: Object.assign({}, ctx, { is_duplicate: hits.length > 0 }) }];\n"
+        "jsCode": "\n// The Data Table 'get' replaces our context, so pull it back from the build node.\n// alwaysOutputData means an empty result still emits one item with no columns;\n// only rows carrying a real dedupe_key count as a genuine prior success.\nconst ctx = $('Build & Validate').first().json;\nconst hits = $input.all().filter(function (i) {\n  return i.json && i.json.dedupe_key;\n});\nreturn [{ json: Object.assign({}, ctx, { is_duplicate: hits.length > 0 }) }];\n"
       },
-      "id": "outl-dupe",
+      "id": "gma-dupe",
       "name": "Evaluate Duplicate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -168,8 +183,8 @@
         },
         "options": {}
       },
-      "id": "outl-dupif",
-      "name": "Already Created?",
+      "id": "gma-dupif",
+      "name": "Already Sent?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
@@ -179,51 +194,28 @@
     },
     {
       "parameters": {
-        "resource": "event",
-        "operation": "getAll",
-        "fromAllCalendars": true,
-        "returnAll": false,
-        "limit": 250,
-        "startDateTime": "={{ $json.probe_start }}",
-        "endDateTime": "={{ $json.probe_end }}",
-        "output": "simple",
-        "filters": {}
-      },
-      "id": "outl-probe",
-      "name": "Probe Calendar",
-      "type": "n8n-nodes-base.microsoftOutlook",
-      "typeVersion": 2,
-      "position": [
-        620,
-        300
-      ],
-      "alwaysOutputData": true,
-      "notes": "Widened window + limit 250. The old limit of 20 could silently miss conflicts."
-    },
-    {
-      "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\n// --- shared helpers (inline: n8n Code nodes cannot import) ---\n\n// Deterministic content hash for idempotency.\n// Execution id is NOT a usable idempotency key: a double form submit creates two\n// executions with two different ids, so it could never match. The key must be\n// derived from the CONTENT of the request.\nfunction fnv1a(str) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 0x01000193) >>> 0;\n  }\n  return ('00000000' + h.toString(16)).slice(-8);\n}\nfunction dedupeKey(parts) {\n  const norm = parts\n    .map(function (p) { return String(p == null ? '' : p).trim().toLowerCase().replace(/\\s+/g, ' '); })\n    .join('|~|');\n  const rev = norm.split('').reverse().join('');\n  return fnv1a(norm) + fnv1a(rev) + String(norm.length);\n}\n\n// n8n hardcodes parse_mode 'Markdown' on sendAndWait. Legacy Markdown throws\n// \"Bad Request: can't parse entities\" on any unmatched * _ ` [ ] \u2014 which real\n// email WILL contain. Escaping is unreliable in legacy mode, so neutralise the\n// characters instead. Costs a little fidelity, never a failed send.\nfunction mdSafe(s) {\n  return String(s == null ? '' : s).replace(/[*_`\\[\\]]/g, ' ');\n}\n\n// Where we control parse_mode we use HTML, whose escaping is total and lossless.\nfunction htmlEsc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\n// Prefix U+200F so a mixed LTR-label / RTL-content line renders right-to-left.\nfunction rtlMark(s) {\n  const str = String(s == null ? '' : s);\n  const ARABIC = /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]/;\n  return ARABIC.test(str) ? '\u200f' + str : str;\n}\n\n// Telegram hard-caps a message at 4096 chars. Split on paragraph, then line, then\n// hard-cut, so a long email is delivered in full across several messages rather\n// than failing to send.\nfunction chunk(text, size) {\n  const out = [];\n  let buf = '';\n  const paras = String(text == null ? '' : text).split(/\\n\\n+/);\n  for (const para of paras) {\n    for (const line of para.split('\\n')) {\n      let l = line;\n      while (l.length > size) {\n        if (buf) { out.push(buf); buf = ''; }\n        out.push(l.slice(0, size));\n        l = l.slice(size);\n      }\n      if ((buf + '\\n' + l).length > size) { out.push(buf); buf = l; }\n      else { buf = buf ? buf + '\\n' + l : l; }\n    }\n    if ((buf + '\\n\\n').length < size) { buf += '\\n\\n'; }\n  }\n  if (buf.trim()) out.push(buf);\n  return out.length ? out : ['(empty)'];\n}\n\n// RFC-ish address check. Deliberately strict-ish and deterministic: validation is\n// infrastructure's job, never the model's.\nfunction validEmail(a) {\n  return /^[^\\s@,;]+@[^\\s@,;]+\\.[^\\s@,;]{2,}$/.test(String(a == null ? '' : a).trim());\n}\nfunction splitAddrs(s) {\n  return String(s == null ? '' : s).split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);\n}\n\nconst req = $('Build & Validate').first().json;\nconst reqStart = new Date(req.start).getTime();\nconst reqEnd   = new Date(req.end).getTime();\n\n// The probe window is deliberately wider than the request, so filter for TRUE\n// overlap here rather than trusting the provider's window semantics.\n// Overlap test: existing.start < requested.end AND existing.end > requested.start\nconst rows = [];\nfor (const e of $input.all()) {\n  if (!e.json || !e.json.id) continue;\n\n    const s = e.json.start && (e.json.start.dateTime || e.json.start) || null;\n    const t = e.json.end   && (e.json.end.dateTime   || e.json.end)   || null;\n    const name = e.json.subject || '(untitled)';\n\n    if (!s || !t) continue;\n    const es = new Date(s).getTime();\n    const ee = new Date(t).getTime();\n    if (isNaN(es) || isNaN(ee)) continue;\n    if (es < reqEnd && ee > reqStart) {\n      rows.push('- ' + mdSafe(name) + '  ' + new Date(es).toISOString() + ' -> ' + new Date(ee).toISOString());\n    }\n}\n\nconst truncated = rows.length > 15;\nconst shown = rows.slice(0, 15);\nif (truncated) shown.push('- ... and ' + (rows.length - 15) + ' more');\n\nreturn [{\n  json: Object.assign({}, req, {\n    conflict_count: rows.length,\n    conflicts: rows.length ? rtlMark(shown.join('\\n')) : 'None',\n  }),\n}];\n"
+        "jsCode": "\n// --- shared helpers (inline: n8n Code nodes cannot import) ---\n\n// Deterministic content hash for idempotency.\n// Execution id is NOT a usable idempotency key: a double form submit creates two\n// executions with two different ids, so it could never match. The key must be\n// derived from the CONTENT of the request.\nfunction fnv1a(str) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 0x01000193) >>> 0;\n  }\n  return ('00000000' + h.toString(16)).slice(-8);\n}\nfunction dedupeKey(parts) {\n  const norm = parts\n    .map(function (p) { return String(p == null ? '' : p).trim().toLowerCase().replace(/\\s+/g, ' '); })\n    .join('|~|');\n  const rev = norm.split('').reverse().join('');\n  return fnv1a(norm) + fnv1a(rev) + String(norm.length);\n}\n\n// n8n hardcodes parse_mode 'Markdown' on sendAndWait. Legacy Markdown throws\n// \"Bad Request: can't parse entities\" on any unmatched * _ ` [ ] \u2014 which real\n// email WILL contain. Escaping is unreliable in legacy mode, so neutralise the\n// characters instead. Costs a little fidelity, never a failed send.\nfunction mdSafe(s) {\n  return String(s == null ? '' : s).replace(/[*_`\\[\\]]/g, ' ');\n}\n\n// Where we control parse_mode we use HTML, whose escaping is total and lossless.\nfunction htmlEsc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\n// Prefix U+200F so a mixed LTR-label / RTL-content line renders right-to-left.\nfunction rtlMark(s) {\n  const str = String(s == null ? '' : s);\n  const ARABIC = /[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]/;\n  return ARABIC.test(str) ? '\u200f' + str : str;\n}\n\n// Telegram hard-caps a message at 4096 chars. Split on paragraph, then line, then\n// hard-cut, so a long email is delivered in full across several messages rather\n// than failing to send.\nfunction chunk(text, size) {\n  const out = [];\n  let buf = '';\n  const paras = String(text == null ? '' : text).split(/\\n\\n+/);\n  for (const para of paras) {\n    for (const line of para.split('\\n')) {\n      let l = line;\n      while (l.length > size) {\n        if (buf) { out.push(buf); buf = ''; }\n        out.push(l.slice(0, size));\n        l = l.slice(size);\n      }\n      if ((buf + '\\n' + l).length > size) { out.push(buf); buf = l; }\n      else { buf = buf ? buf + '\\n' + l : l; }\n    }\n    if ((buf + '\\n\\n').length < size) { buf += '\\n\\n'; }\n  }\n  if (buf.trim()) out.push(buf);\n  return out.length ? out : ['(empty)'];\n}\n\n// RFC-ish address check. Deliberately strict-ish and deterministic: validation is\n// infrastructure's job, never the model's.\nfunction validEmail(a) {\n  return /^[^\\s@,;]+@[^\\s@,;]+\\.[^\\s@,;]{2,}$/.test(String(a == null ? '' : a).trim());\n}\nfunction splitAddrs(s) {\n  return String(s == null ? '' : s).split(/[,;]/).map(function (x) { return x.trim(); }).filter(Boolean);\n}\n\n// The approval message goes through n8n's forced legacy-Markdown parse_mode, so\n// the body must be neutralised or Telegram rejects the whole send.\nconst j = $input.first().json;\nconst MAX = 2200; // leaves headroom under Telegram's 4096 for headers + labels\nlet preview = mdSafe(j.body);\nif (preview.length > MAX) {\n  preview = preview.slice(0, MAX) + '\\n\\n[... truncated for Telegram. Full text is in the email itself.]';\n}\nreturn [{ json: Object.assign({}, j, { body_preview: rtlMark(preview) }) }];\n"
       },
-      "id": "outl-conf",
-      "name": "Summarise Conflicts",
+      "id": "gma-prev",
+      "name": "Build Preview",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        840,
+        620,
         300
       ]
     },
     {
       "parameters": {
         "chatId": "YOUR_TELEGRAM_CHAT_ID",
-        "message": "=ALIA - Approval required (T2)\n\nAction: Create Outlook event\nRequest: {{{{ $json.request_id }}}}\n\nTitle: {{{{ $json.title }}}}\nStart: {{{{ $json.start }}}}\nEnd: {{{{ $json.end }}}}\nAttendees: {{{{ $json.attendees || '(none)' }}}}\n\nConflicts in this window: {{{{ $json.conflict_count }}}}\n{{{{ $json.conflicts }}}}\n\nApprove to create this event.",
+        "message": "=ALIA - Approval required (T2)\n\nChannel: Gmail\nRequest: {{{{ $json.request_id }}}}\n\nTo: {{{{ $json.to }}}}\n{{{{ $json.cc ? 'CC: ' + $json.cc + '\\n' : '' }}}}{{{{ $json.bcc ? 'BCC: ' + $json.bcc + '\\n' : '' }}}}Subject: {{{{ $json.subject }}}}\nFormat: {{{{ $json.format }}}}\n\n---\n{{{{ $json.body_preview }}}}\n---\n\nApprove to send this email.",
         "operation": "sendAndWait",
         "responseType": "approval",
         "approvalOptions": {
           "values": {
             "approvalType": "double",
-            "approveLabel": "Approve & Create",
+            "approveLabel": "Approve & Send",
             "disapproveLabel": "Reject"
           }
         },
@@ -242,15 +234,15 @@
           "appendAttribution": false
         }
       },
-      "id": "outl-appr",
+      "id": "gma-appr",
       "name": "Request Approval",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        1060,
+        840,
         300
       ],
-      "webhookId": "outl-appr-wh"
+      "webhookId": "gma-appr-wh"
     },
     {
       "parameters": {
@@ -277,12 +269,12 @@
         },
         "options": {}
       },
-      "id": "outl-apif",
+      "id": "gma-apif",
       "name": "Approved?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1280,
+        1060,
         300
       ]
     },
@@ -311,42 +303,35 @@
         },
         "options": {}
       },
-      "id": "outl-dcif",
+      "id": "gma-dcif",
       "name": "Decided?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1280,
+        1060,
         520
       ]
     },
     {
       "parameters": {
-        "resource": "event",
-        "operation": "create",
-        "calendarId": {
-          "__rl": true,
-          "value": "",
-          "mode": "list",
-          "cachedResultName": ""
-        },
-        "subject": "={{ $('Build & Validate').item.json.title }}",
-        "startDateTime": "={{ $('Build & Validate').item.json.start }}",
-        "endDateTime": "={{ $('Build & Validate').item.json.end }}",
-        "additionalFields": {
-          "body": "={{ $('Build & Validate').item.json.description }}",
-          "attendees": "={{ ($('Build & Validate').item.json.attendees || '').split(',').filter(Boolean) }}"
+        "sendTo": "={{ $('Build & Validate').item.json.to }}",
+        "subject": "={{ $('Build & Validate').item.json.subject }}",
+        "emailType": "={{ $('Build & Validate').item.json.format }}",
+        "message": "={{ $('Build & Validate').item.json.body }}",
+        "options": {
+          "ccList": "={{ $('Build & Validate').item.json.cc }}",
+          "bccList": "={{ $('Build & Validate').item.json.bcc }}",
+          "appendAttribution": false
         }
       },
-      "id": "outl-create",
-      "name": "Create Event (Outlook)",
-      "type": "n8n-nodes-base.microsoftOutlook",
-      "typeVersion": 2,
+      "id": "gma-send",
+      "name": "Send Email (Gmail)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
       "position": [
-        1520,
+        1300,
         120
       ],
-      "notes": "REQUIRED: pick a calendar. An empty calendarId throws 'Calendar ID is required' at runtime.",
       "onError": "continueErrorOutput"
     },
     {
@@ -374,13 +359,13 @@
             {
               "id": "a3",
               "name": "channel",
-              "value": "outlook_calendar",
+              "value": "gmail",
               "type": "string"
             },
             {
               "id": "a4",
               "name": "action",
-              "value": "create_event",
+              "value": "send_email",
               "type": "string"
             },
             {
@@ -398,13 +383,13 @@
             {
               "id": "a7",
               "name": "subject",
-              "value": "={{ $('Build & Validate').item.json.title }}",
+              "value": "={{ $('Build & Validate').item.json.subject }}",
               "type": "string"
             },
             {
               "id": "a8",
               "name": "target",
-              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "value": "={{ $('Build & Validate').item.json.to }}",
               "type": "string"
             },
             {
@@ -428,20 +413,20 @@
             {
               "id": "a12",
               "name": "detail",
-              "value": "Event created after approval",
+              "value": "Email sent after approval",
               "type": "string"
             }
           ]
         },
         "options": {}
       },
-      "id": "outl-o1",
-      "name": "Outcome: Created",
+      "id": "gma-o1",
+      "name": "Outcome: Sent",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1760,
-        60
+        1540,
+        120
       ]
     },
     {
@@ -469,13 +454,13 @@
             {
               "id": "a3",
               "name": "channel",
-              "value": "outlook_calendar",
+              "value": "gmail",
               "type": "string"
             },
             {
               "id": "a4",
               "name": "action",
-              "value": "create_event",
+              "value": "send_email",
               "type": "string"
             },
             {
@@ -493,108 +478,13 @@
             {
               "id": "a7",
               "name": "subject",
-              "value": "={{ $('Build & Validate').item.json.title }}",
+              "value": "={{ $('Build & Validate').item.json.subject }}",
               "type": "string"
             },
             {
               "id": "a8",
               "name": "target",
-              "value": "={{ $('Build & Validate').item.json.attendees }}",
-              "type": "string"
-            },
-            {
-              "id": "a9",
-              "name": "importance",
-              "value": "",
-              "type": "string"
-            },
-            {
-              "id": "a10",
-              "name": "decision",
-              "value": "approved",
-              "type": "string"
-            },
-            {
-              "id": "a11",
-              "name": "outcome",
-              "value": "failed",
-              "type": "string"
-            },
-            {
-              "id": "a12",
-              "name": "detail",
-              "value": "={{ 'Provider rejected the create: ' + ($json.error && $json.error.message || 'unknown error') }}",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "outl-o6",
-      "name": "Outcome: Create Failed",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        1760,
-        240
-      ]
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "a0",
-              "name": "request_id",
-              "value": "={{ $('Build & Validate').item.json.request_id }}",
-              "type": "string"
-            },
-            {
-              "id": "a1",
-              "name": "dedupe_key",
-              "value": "={{ $('Build & Validate').item.json.dedupe_key }}",
-              "type": "string"
-            },
-            {
-              "id": "a2",
-              "name": "ts",
-              "value": "={{ $now.toISO() }}",
-              "type": "string"
-            },
-            {
-              "id": "a3",
-              "name": "channel",
-              "value": "outlook_calendar",
-              "type": "string"
-            },
-            {
-              "id": "a4",
-              "name": "action",
-              "value": "create_event",
-              "type": "string"
-            },
-            {
-              "id": "a5",
-              "name": "tier",
-              "value": "T2",
-              "type": "string"
-            },
-            {
-              "id": "a6",
-              "name": "approver_id",
-              "value": "={{ (($('Request Approval').item.json.data && $('Request Approval').item.json.data.responder && $('Request Approval').item.json.data.responder.id) || 'unknown') }}",
-              "type": "string"
-            },
-            {
-              "id": "a7",
-              "name": "subject",
-              "value": "={{ $('Build & Validate').item.json.title }}",
-              "type": "string"
-            },
-            {
-              "id": "a8",
-              "name": "target",
-              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "value": "={{ $('Build & Validate').item.json.to }}",
               "type": "string"
             },
             {
@@ -612,7 +502,7 @@
             {
               "id": "a11",
               "name": "outcome",
-              "value": "not_created",
+              "value": "not_sent",
               "type": "string"
             },
             {
@@ -625,12 +515,12 @@
         },
         "options": {}
       },
-      "id": "outl-o2",
+      "id": "gma-o2",
       "name": "Outcome: Rejected",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1520,
+        1300,
         460
       ]
     },
@@ -659,13 +549,13 @@
             {
               "id": "a3",
               "name": "channel",
-              "value": "outlook_calendar",
+              "value": "gmail",
               "type": "string"
             },
             {
               "id": "a4",
               "name": "action",
-              "value": "create_event",
+              "value": "send_email",
               "type": "string"
             },
             {
@@ -683,13 +573,13 @@
             {
               "id": "a7",
               "name": "subject",
-              "value": "={{ $('Build & Validate').item.json.title }}",
+              "value": "={{ $('Build & Validate').item.json.subject }}",
               "type": "string"
             },
             {
               "id": "a8",
               "name": "target",
-              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "value": "={{ $('Build & Validate').item.json.to }}",
               "type": "string"
             },
             {
@@ -707,7 +597,7 @@
             {
               "id": "a11",
               "name": "outcome",
-              "value": "not_created",
+              "value": "not_sent",
               "type": "string"
             },
             {
@@ -720,12 +610,12 @@
         },
         "options": {}
       },
-      "id": "outl-o3",
+      "id": "gma-o3",
       "name": "Outcome: Timed Out",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1520,
+        1300,
         660
       ]
     },
@@ -754,13 +644,13 @@
             {
               "id": "a3",
               "name": "channel",
-              "value": "outlook_calendar",
+              "value": "gmail",
               "type": "string"
             },
             {
               "id": "a4",
               "name": "action",
-              "value": "create_event",
+              "value": "send_email",
               "type": "string"
             },
             {
@@ -778,13 +668,13 @@
             {
               "id": "a7",
               "name": "subject",
-              "value": "={{ $('Build & Validate').item.json.title }}",
+              "value": "={{ $('Build & Validate').item.json.subject }}",
               "type": "string"
             },
             {
               "id": "a8",
               "name": "target",
-              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "value": "={{ $('Build & Validate').item.json.to }}",
               "type": "string"
             },
             {
@@ -802,20 +692,20 @@
             {
               "id": "a11",
               "name": "outcome",
-              "value": "not_created",
+              "value": "not_sent",
               "type": "string"
             },
             {
               "id": "a12",
               "name": "detail",
-              "value": "Identical event already created",
+              "value": "Identical content already sent",
               "type": "string"
             }
           ]
         },
         "options": {}
       },
-      "id": "outl-o4",
+      "id": "gma-o4",
       "name": "Outcome: Duplicate",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -849,13 +739,13 @@
             {
               "id": "a3",
               "name": "channel",
-              "value": "outlook_calendar",
+              "value": "gmail",
               "type": "string"
             },
             {
               "id": "a4",
               "name": "action",
-              "value": "create_event",
+              "value": "send_email",
               "type": "string"
             },
             {
@@ -873,13 +763,13 @@
             {
               "id": "a7",
               "name": "subject",
-              "value": "={{ $('Build & Validate').item.json.title }}",
+              "value": "={{ $('Build & Validate').item.json.subject }}",
               "type": "string"
             },
             {
               "id": "a8",
               "name": "target",
-              "value": "={{ $('Build & Validate').item.json.attendees }}",
+              "value": "={{ $('Build & Validate').item.json.to }}",
               "type": "string"
             },
             {
@@ -897,7 +787,7 @@
             {
               "id": "a11",
               "name": "outcome",
-              "value": "not_created",
+              "value": "not_sent",
               "type": "string"
             },
             {
@@ -910,7 +800,7 @@
         },
         "options": {}
       },
-      "id": "outl-o5",
+      "id": "gma-o5",
       "name": "Outcome: Invalid",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
@@ -1067,19 +957,114 @@
         },
         "options": {}
       },
-      "id": "outl-audit",
+      "id": "gma-audit",
       "name": "Audit Log",
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        2020,
+        1800,
         380
       ],
       "notes": "Single shared audit sink. Every branch writes the identical column set."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a0",
+              "name": "request_id",
+              "value": "={{ $('Build & Validate').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a1",
+              "name": "dedupe_key",
+              "value": "={{ $('Build & Validate').item.json.dedupe_key }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "ts",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "channel",
+              "value": "gmail",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "action",
+              "value": "send_email",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "approver_id",
+              "value": "={{ (($('Request Approval').item.json.data && $('Request Approval').item.json.data.responder && $('Request Approval').item.json.data.responder.id) || 'unknown') }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "subject",
+              "value": "={{ $('Build & Validate').item.json.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "target",
+              "value": "={{ $('Build & Validate').item.json.to }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "importance",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a10",
+              "name": "decision",
+              "value": "approved",
+              "type": "string"
+            },
+            {
+              "id": "a11",
+              "name": "outcome",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "a12",
+              "name": "detail",
+              "value": "={{ 'Provider rejected the send: ' + ($json.error && $json.error.message || 'unknown error') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "gma-o1-f",
+      "name": "Outcome: Send Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1540,
+        300
+      ]
     }
   ],
   "connections": {
-    "Request Event": {
+    "Request Email": {
       "main": [
         [
           {
@@ -1134,14 +1119,14 @@
       "main": [
         [
           {
-            "node": "Already Created?",
+            "node": "Already Sent?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Already Created?": {
+    "Already Sent?": {
       "main": [
         [
           {
@@ -1152,25 +1137,14 @@
         ],
         [
           {
-            "node": "Probe Calendar",
+            "node": "Build Preview",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Probe Calendar": {
-      "main": [
-        [
-          {
-            "node": "Summarise Conflicts",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Summarise Conflicts": {
+    "Build Preview": {
       "main": [
         [
           {
@@ -1196,7 +1170,7 @@
       "main": [
         [
           {
-            "node": "Create Event (Outlook)",
+            "node": "Send Email (Gmail)",
             "type": "main",
             "index": 0
           }
@@ -1228,36 +1202,25 @@
         ]
       ]
     },
-    "Create Event (Outlook)": {
+    "Send Email (Gmail)": {
       "main": [
         [
           {
-            "node": "Outcome: Created",
+            "node": "Outcome: Sent",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Outcome: Create Failed",
+            "node": "Outcome: Send Failed",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Outcome: Created": {
-      "main": [
-        [
-          {
-            "node": "Audit Log",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Outcome: Create Failed": {
+    "Outcome: Sent": {
       "main": [
         [
           {
@@ -1302,6 +1265,17 @@
       ]
     },
     "Outcome: Invalid": {
+      "main": [
+        [
+          {
+            "node": "Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Send Failed": {
       "main": [
         [
           {
