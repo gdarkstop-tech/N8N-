@@ -13,7 +13,7 @@ request → log intent → ask for approval → branch → act or don't → log 
 | `outlook-send-with-telegram-approval.json` | Send Outlook mail, approval via Telegram | Outlook OAuth (send node only) |
 | `calendar-google-create-with-approval.json` | Read schedule, detect conflicts, create event | nothing |
 | `calendar-outlook-create-with-approval.json` | Same, Outlook Calendar | Outlook OAuth |
-| `incoming-email-triage-gmail.json` | Read new mail → summarise → draft reply → approve → send | nothing |
+| `incoming-email-triage-gmail.json` | Filter out spam/bulk, rate importance, summarise, draft reply, approve, send | nothing |
 
 ## How to paste
 
@@ -52,8 +52,8 @@ Set nodes emit. Union of all of them:
 
 ```
 request_id, channel, tier, to, subject, body, requested_at,
-title, conflict_count, from, injection_detected,
-decision, outcome, decided_at
+title, conflict_count, from, importance, injection_detected,
+filter_reason, decision, outcome, decided_at
 ```
 
 Simplest approach: one `alia_audit_log` sheet with all of those as headers, used by
@@ -86,29 +86,63 @@ Disable the blocked action node (select, press `D`). The rest of the chain — f
 logging, Telegram approval, branch, outcome logging — runs end to end, which validates
 the entire gate. Re-enable once the credential connects.
 
+## The triage flow — what reaches you
+
+Two filter stages, so you only get interrupted for mail that matters.
+
+**Stage 1 — deterministic, before the model.** Costs nothing and does not depend on
+LLM judgement:
+- Gmail's own labels: `SPAM`, `TRASH`, `CATEGORY_PROMOTIONS`, `CATEGORY_SOCIAL`
+- bulk mail (`List-Unsubscribe` / `List-Id` headers) — newsletters, mailing lists
+- `no-reply@`, `do-not-reply@`, `mailer-daemon@`, `postmaster@` senders
+
+**Stage 2 — the model rates importance** `high` / `normal` / `low` / `noise`.
+Only `high` and `normal` reach Telegram. The prompt tells it to be strict and to
+choose `low` when torn, because a false interruption costs you more than a missed
+low-priority note.
+
+**VIP override.** Edit `VIP_SENDERS` at the top of `Pre-Filter (Deterministic)`.
+Anyone listed bypasses *both* stages, even if Gmail mislabelled them — so a board
+member landing in Promotions still reaches you.
+
+Everything filtered out is still written to the audit log with a `filter_reason`.
+Nothing is silently discarded, so you can review what was suppressed and tune the
+lists. **Run it for a few days reading the log before trusting the filter.**
+
+Replies are drafted only for `high`/`normal` mail. The prompt asks for a senior
+executive register — courteous, direct, no filler — in the same language as the
+incoming mail (Arabic and English), and explicitly forbids inventing facts, figures,
+commitments or dates. If a real answer needs information the model does not have, it
+writes a short holding reply instead of guessing.
+
 ## Security notes on the triage flow
 
-Incoming email is **untrusted input reaching an LLM**. Three controls are built in:
+Incoming email is **untrusted input reaching an LLM**. Four controls are built in:
 
 1. **The email is delimited and labelled as data.** The system prompt states the sender
    is not the model's principal and that instructions inside `<untrusted_email>` must be
-   ignored. This is defence-in-depth, *not* a guarantee — prompt injection is not solved
-   by prompting.
+   ignored — including attempts to *raise the email's own importance rating* to force an
+   interruption. This is defence-in-depth, **not** a guarantee; prompt injection is not
+   solved by prompting.
 2. **The model never chooses the recipient.** `Send Reply (Gmail)` uses `messageId` from
    `Extract Email`, so Gmail resolves the recipient from the original thread. Even a
    fully successful injection cannot redirect the reply — it is structurally impossible,
-   which is the only kind of control worth relying on. This is the ADR-001 principle in
-   practice: the LLM supplies body text, infrastructure decides where it goes.
-3. **Injection attempts surface in the approval message.** The model sets
-   `injection_detected`, and the Telegram message shows a 🚨 banner. Treat this as a
-   signal to read carefully, never as a filter you can trust.
+   which is the only kind of control worth relying on. This is ADR-001 in practice: the
+   LLM supplies body text, infrastructure decides where it goes.
+3. **Stage 1 filtering is deterministic.** Phishing and spam are dropped by Gmail labels
+   and headers before the model ever reads them, so the highest-risk mail mostly never
+   reaches the LLM at all.
+4. **Injection attempts surface in the approval message.** The model sets
+   `injection_detected` and Telegram shows a 🚨 banner. Treat it as a signal to read
+   carefully, never as a filter you can trust.
 
-`Parse Draft` also fails safe: if the model returns malformed JSON, the flow does not
-crash and does not send an empty reply — it flags `parse_error` and shows raw output.
+`Parse Verdict` **fails loud, not silent**: if the model returns malformed JSON or an
+unreadable importance rating, the email is surfaced anyway with a ⚠️ banner rather than
+dropped. A parsing bug must never become a silent mail filter.
 
-**What is still not protected:** the model reads the whole email body, so a malicious
-email can waste tokens or attempt to influence the summary you read. Approval is the
-backstop — read the summary critically, especially with the 🚨 banner.
+**What is still not protected:** the model reads the full body of mail that passes
+stage 1, so a crafted email can attempt to influence the summary you read. Approval is
+the backstop — read the summary critically, especially with a banner showing.
 
 ## Model choice
 
