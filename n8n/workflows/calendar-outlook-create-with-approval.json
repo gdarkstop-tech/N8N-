@@ -1,0 +1,590 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "ALIA \u2014 Create Calendar Event (Outlook)",
+        "formDescription": "Checks for conflicts, then requires approval before the event is created.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Title",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Start",
+              "placeholder": "2026-09-22T14:00:00+03:00",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "End",
+              "placeholder": "2026-09-22T15:00:00+03:00",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Attendees",
+              "placeholder": "a@x.com, b@y.com"
+            },
+            {
+              "fieldLabel": "Description",
+              "fieldType": "textarea"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "alia-form-ocal",
+      "name": "Request Event (Outlook)",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -220,
+        300
+      ],
+      "webhookId": "alia-ocal-request"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "request_id",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "channel",
+              "value": "outlook_calendar",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "title",
+              "value": "={{ $json.Title }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "start",
+              "value": "={{ $json.Start }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "end",
+              "value": "={{ $json.End }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "attendees",
+              "value": "={{ $json.Attendees || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "description",
+              "value": "={{ $json.Description || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "requested_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "alia-gcal-build",
+      "name": "Build Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "alia-gcal-logreq",
+      "name": "Log Request (OCal)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "fromAllCalendars": true,
+        "startDateTime": "={{ $json.start }}",
+        "endDateTime": "={{ $json.end }}",
+        "returnAll": false,
+        "limit": 20,
+        "output": "simple",
+        "filters": {}
+      },
+      "id": "alia-ocal-conflicts",
+      "name": "Check Conflicts (OCal)",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Outlook event:getAll (output=simple) returns events overlapping the window.\n// alwaysOutputData is on upstream, so an empty window still yields one empty item.\nconst req = $('Build Request').first().json;\nconst events = $input.all().filter(i => i.json && i.json.id);\n\nconst lines = events.map(e => {\n  const s = e.json.start?.dateTime || e.json.start || '?';\n  return `\u2022 ${e.json.subject || '(untitled)'} \u2014 ${s}`;\n});\n\nreturn [{\n  json: {\n    ...req,\n    conflict_count: lines.length,\n    conflicts: lines.length ? lines.join('\\n') : 'None',\n  },\n}];"
+      },
+      "id": "alia-gcal-summarise",
+      "name": "Summarise Conflicts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "message": "=*ALIA \u2014 Approval required (T2)*\n\n*Action:* Create Outlook Calendar event\n*Request:* {{ $json.request_id }}\n\n*Title:* {{ $json.title }}\n*Start:* {{ $json.start }}\n*End:* {{ $json.end }}\n*Attendees:* {{ $json.attendees || '(none)' }}\n\n\u26a0\ufe0f *Conflicts in this window: {{ $json.conflict_count }}*\n{{ $json.conflicts }}",
+        "operation": "sendAndWait",
+        "responseType": "approval",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "approveLabel": "\u2705 Approve & Create",
+            "disapproveLabel": "\u274c Reject"
+          }
+        },
+        "options": {
+          "limitWaitTime": true,
+          "resumeAmount": 30,
+          "resumeUnit": "minutes",
+          "appendAttribution": false
+        }
+      },
+      "id": "alia-ocal-approval",
+      "name": "Request Approval (Telegram)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        300
+      ],
+      "webhookId": "alia-ocal-approval"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.data.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "alia-gcal-approved",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendarId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "subject": "={{ $('Summarise Conflicts').item.json.title }}",
+        "startDateTime": "={{ $('Summarise Conflicts').item.json.start }}",
+        "endDateTime": "={{ $('Summarise Conflicts').item.json.end }}",
+        "additionalFields": {
+          "body": "={{ $('Summarise Conflicts').item.json.description }}",
+          "attendees": "={{ ($('Summarise Conflicts').item.json.attendees || '').split(',').map(s => s.trim()).filter(Boolean) }}"
+        }
+      },
+      "id": "alia-ocal-create",
+      "name": "Create Event (OCal)",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "request_id",
+              "value": "={{ $('Summarise Conflicts').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "s2",
+              "name": "channel",
+              "value": "outlook_calendar",
+              "type": "string"
+            },
+            {
+              "id": "s3",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "s4",
+              "name": "title",
+              "value": "={{ $('Summarise Conflicts').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "s5",
+              "name": "conflict_count",
+              "value": "={{ $('Summarise Conflicts').item.json.conflict_count }}",
+              "type": "string"
+            },
+            {
+              "id": "s6",
+              "name": "decision",
+              "value": "approved",
+              "type": "string"
+            },
+            {
+              "id": "s7",
+              "name": "outcome",
+              "value": "created",
+              "type": "string"
+            },
+            {
+              "id": "s8",
+              "name": "decided_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "alia-gcal-out-ok",
+      "name": "Outcome: Created",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1560,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "alia-gcal-logok",
+      "name": "Log Created (OCal)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1780,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "request_id",
+              "value": "={{ $('Summarise Conflicts').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "r2",
+              "name": "channel",
+              "value": "outlook_calendar",
+              "type": "string"
+            },
+            {
+              "id": "r3",
+              "name": "tier",
+              "value": "T2",
+              "type": "string"
+            },
+            {
+              "id": "r4",
+              "name": "title",
+              "value": "={{ $('Summarise Conflicts').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "r5",
+              "name": "conflict_count",
+              "value": "={{ $('Summarise Conflicts').item.json.conflict_count }}",
+              "type": "string"
+            },
+            {
+              "id": "r6",
+              "name": "decision",
+              "value": "rejected",
+              "type": "string"
+            },
+            {
+              "id": "r7",
+              "name": "outcome",
+              "value": "not_created",
+              "type": "string"
+            },
+            {
+              "id": "r8",
+              "name": "decided_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "alia-gcal-out-no",
+      "name": "Outcome: Rejected",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1340,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "alia-gcal-logno",
+      "name": "Log Rejected (OCal)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1560,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "Request Event (Outlook)": {
+      "main": [
+        [
+          {
+            "node": "Build Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Request": {
+      "main": [
+        [
+          {
+            "node": "Log Request (OCal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Request (OCal)": {
+      "main": [
+        [
+          {
+            "node": "Check Conflicts (OCal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Conflicts (OCal)": {
+      "main": [
+        [
+          {
+            "node": "Summarise Conflicts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise Conflicts": {
+      "main": [
+        [
+          {
+            "node": "Request Approval (Telegram)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request Approval (Telegram)": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Create Event (OCal)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome: Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Event (OCal)": {
+      "main": [
+        [
+          {
+            "node": "Outcome: Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Created": {
+      "main": [
+        [
+          {
+            "node": "Log Created (OCal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome: Rejected": {
+      "main": [
+        [
+          {
+            "node": "Log Rejected (OCal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
