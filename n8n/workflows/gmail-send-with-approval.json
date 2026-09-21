@@ -1,4 +1,5 @@
 {
+  "name": "ALIA - Gmail Send (Telegram Approval)",
   "nodes": [
     {
       "parameters": {
@@ -1287,5 +1288,10 @@
       ]
     }
   },
-  "pinData": {}
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "tags": []
 }
