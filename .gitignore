@@ -1,0 +1,4 @@
+# Derived bundle of n8n/workflows/*.json, rebuilt on demand for download.
+# Not committed: it is binary, duplicates tracked source, and would go stale
+# silently the moment a workflow changes.
+alia-n8n-workflows.zip
